@@ -66,9 +66,9 @@ class SessionTestCase(unittest.TestCase):
         self.zone_file = Path(self.tmp.name) / "zone.json"
         self.session = self.make_session()
 
-    def make_session(self, zone=None, confirm_frames=1):
+    def make_session(self, zone=None, confirm_frames=1, **options):
         return portal.Session(zone or SQUARE_ZONE, confirm_frames, self.csv_path, self.zone_file,
-                              DEFAULT_ZONE, clock=self.clock)
+                              DEFAULT_ZONE, clock=self.clock, **options)
 
     def feed(self, *people, advance=0.0):
         self.clock.now += advance
@@ -788,6 +788,384 @@ class HttpSecurityTests(unittest.TestCase):
         portal_ = RunningPortal(self, [])
         status, _, _ = portal_.request("POST", "/api/zone", raw_body=b"x" * 200_000, headers={"Content-Type": "application/json"})
         self.assertEqual(status, 413)
+
+
+# --- Zone insights: counting rule, manual-count check, foot heat-map ------------------------------------
+
+FEET_BELOW_ZONE = (100, 125)  # the body reaches the zone but the feet are below it (SQUARE_ZONE ends at y=108)
+CLIPPING_ONLY = (150, 50)     # feet and middle are outside SQUARE_ZONE, but the box clips its top-right corner
+
+
+class SessionRuleTests(SessionTestCase):
+    """Session counting rules: the choice of "feet", "centre" or "overlap", and the first-seen-inside switch."""
+
+    def entries(self):
+        return self.session.snapshot()["counts"]["entries"]
+
+    def test_defaults_are_the_original_behaviour(self):
+        self.assertEqual(self.session.rules(), {"rule": "feet", "countFirstSeenInside": False})
+        self.assertEqual(self.session.snapshot()["rules"], {"rule": "feet", "countFirstSeenInside": False})
+
+    def test_feet_rule_does_not_count_feet_below_the_zone(self):
+        self.feed(person(1, OUTSIDE_SQUARE))
+        self.feed(person(1, FEET_BELOW_ZONE))
+        self.assertEqual(self.entries(), 0)
+
+    def test_centre_rule_counts_a_body_that_reaches_the_zone(self):
+        self.session = self.make_session(rule="centre")
+        self.feed(person(1, OUTSIDE_SQUARE))
+        self.feed(person(1, FEET_BELOW_ZONE))
+        self.assertEqual(self.entries(), 1)
+        self.assertEqual(self.logged_ids(), [1])
+
+    def test_overlap_rule_counts_a_box_that_only_clips_the_zone(self):
+        self.session = self.make_session(rule="overlap")
+        self.feed(person(1, OUTSIDE_SQUARE))
+        self.feed(person(1, CLIPPING_ONLY))
+        self.assertEqual(self.entries(), 1)
+
+    def test_the_rule_can_be_changed_while_running(self):
+        self.feed(person(1, OUTSIDE_SQUARE))
+        self.session.set_rules("centre", False)
+        self.feed(person(1, OUTSIDE_SQUARE))  # the first frame after a change only re-learns where everyone is
+        self.feed(person(1, FEET_BELOW_ZONE))
+        self.assertEqual(self.entries(), 1)
+        self.assertEqual(self.session.rules()["rule"], "centre")
+
+    def test_an_unknown_rule_is_refused_and_nothing_changes(self):
+        with self.assertRaises(RuntimeError) as context:
+            self.session.set_rules("head", True)
+        self.assertIn("COUNT_RULE", str(context.exception))
+        self.assertEqual(self.session.rules(), {"rule": "feet", "countFirstSeenInside": False})
+
+    def test_the_switch_must_be_true_or_false(self):
+        with self.assertRaises(RuntimeError):
+            self.session.set_rules("feet", "yes")
+        self.assertEqual(self.session.rules()["countFirstSeenInside"], False)
+
+    def test_a_new_session_with_a_bad_rule_is_refused(self):
+        with self.assertRaises(RuntimeError):
+            self.make_session(rule="head")
+
+    def test_switch_on_counts_a_person_who_appears_inside(self):
+        self.session = self.make_session(count_first_seen_inside=True)
+        self.feed(person(1, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 1)
+        self.assertEqual(self.logged_ids(), [1])
+
+    def test_switch_off_does_not_count_a_person_who_appears_inside(self):
+        self.feed(person(1, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 0)
+
+    def test_changing_the_rule_does_not_count_people_who_are_already_inside(self):
+        self.session = self.make_session(count_first_seen_inside=True)
+        self.feed(person(1, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 1)
+        self.session.set_rules("feet", True)
+        self.feed(person(1, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 1)
+
+    def test_editing_the_zone_does_not_count_people_who_are_already_inside(self):
+        self.session = self.make_session(count_first_seen_inside=True)
+        self.feed(person(1, INSIDE_SQUARE))
+        self.session.set_zone([(0.5, 0.5), (0.95, 0.5), (0.95, 0.95), (0.5, 0.95)])  # still contains the person
+        self.feed(person(1, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 1)
+
+    def test_a_newcomer_after_a_zone_edit_is_counted_with_the_switch_on(self):
+        self.session = self.make_session(count_first_seen_inside=True)
+        self.session.set_zone([(0.4, 0.4), (0.95, 0.4), (0.95, 0.95), (0.4, 0.95)])
+        self.feed(person(1, OUTSIDE_SQUARE))  # the first frame after the edit only re-learns positions
+        self.feed(person(2, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 1)
+
+    def test_a_reset_keeps_the_rules_but_counts_people_inside_again(self):
+        self.session = self.make_session(rule="centre", count_first_seen_inside=True)
+        self.feed(person(1, INSIDE_SQUARE))
+        self.session.reset()
+        self.assertEqual(self.session.rules(), {"rule": "centre", "countFirstSeenInside": True})
+        self.feed(person(1, INSIDE_SQUARE))
+        self.assertEqual(self.entries(), 1)  # a new session starts with nothing remembered, so they count again
+
+
+class ManualCheckTextTests(unittest.TestCase):
+    """describe_manual_check(): the wording is the same on the page and in the report."""
+
+    def test_equal_counts_match(self):
+        difference, percent, summary = portal.describe_manual_check(system=4, manual=4)
+        self.assertEqual((difference, percent), (0, 0))
+        self.assertIn("matches", summary)
+
+    def test_system_below_the_manual_count(self):
+        difference, percent, summary = portal.describe_manual_check(system=3, manual=5)
+        self.assertEqual((difference, percent), (-2, 40))
+        self.assertIn("2 fewer", summary)
+        self.assertIn("3 vs 5", summary)
+        self.assertIn("40%", summary)
+
+    def test_system_above_the_manual_count(self):
+        difference, percent, summary = portal.describe_manual_check(system=7, manual=4)
+        self.assertEqual((difference, percent), (3, 75))
+        self.assertIn("3 more", summary)
+
+    def test_a_manual_count_of_zero_has_no_percentage(self):
+        difference, percent, summary = portal.describe_manual_check(system=2, manual=0)
+        self.assertEqual((difference, percent), (2, None))
+        self.assertNotIn("%", summary)
+        self.assertIn("2 more", summary)
+
+    def test_both_zero_match(self):
+        self.assertIn("matches", portal.describe_manual_check(system=0, manual=0)[2])
+
+
+class SessionManualCheckTests(SessionTestCase):
+    """Session.set_manual_count(): compares the system's count with a count the user made by eye."""
+
+    def enter(self, track_id):
+        self.feed(person(track_id, OUTSIDE_SQUARE))
+        self.feed(person(track_id, INSIDE_SQUARE))
+
+    def test_there_is_no_check_until_a_count_is_entered(self):
+        self.assertIsNone(self.session.snapshot()["manualCheck"])
+
+    def test_the_check_compares_with_the_system_count(self):
+        self.enter(1)
+        self.enter(2)
+        self.enter(3)
+        self.session.set_manual_count(5)
+        check = self.session.snapshot()["manualCheck"]
+        self.assertEqual((check["manual"], check["system"], check["difference"], check["percent"]), (5, 3, -2, 40))
+        self.assertIn("2 fewer", check["summary"])
+
+    def test_the_check_follows_the_live_count(self):
+        self.session.set_manual_count(2)
+        self.assertEqual(self.session.snapshot()["manualCheck"]["system"], 0)
+        self.enter(1)
+        self.assertEqual(self.session.snapshot()["manualCheck"]["system"], 1)
+
+    def test_zero_is_a_valid_manual_count(self):
+        self.session.set_manual_count(0)
+        self.assertEqual(self.session.snapshot()["manualCheck"]["manual"], 0)
+
+    def test_the_count_can_be_cleared(self):
+        self.session.set_manual_count(4)
+        self.session.set_manual_count(None)
+        self.assertIsNone(self.session.snapshot()["manualCheck"])
+
+    def test_bad_values_are_refused_and_the_old_count_stays(self):
+        self.session.set_manual_count(4)
+        for bad in (-1, 1.5, "3", True, [3], 1_000_001):
+            with self.assertRaises(RuntimeError, msg=repr(bad)) as context:
+                self.session.set_manual_count(bad)
+            self.assertIn("whole number", str(context.exception))
+        self.assertEqual(self.session.snapshot()["manualCheck"]["manual"], 4)
+
+    def test_a_reset_clears_the_manual_count(self):
+        self.session.set_manual_count(4)
+        self.session.reset()
+        self.assertIsNone(self.session.snapshot()["manualCheck"])
+
+    def test_the_report_carries_the_check(self):
+        self.enter(1)
+        self.session.set_manual_count(1)
+        self.assertEqual(self.session.report()["manualCheck"]["difference"], 0)
+
+
+class SessionHeatmapTests(SessionTestCase):
+    """Session.heatmap(): where feet have been, as counts on a coarse grid (no footage, no per-person paths)."""
+
+    @property
+    def COLS(self):
+        return portal.HEATMAP_COLS
+
+    @property
+    def ROWS(self):
+        return portal.HEATMAP_ROWS
+
+    def cell(self, heat, col, row):
+        return heat["cells"][row * heat["cols"] + col]
+
+    def test_an_empty_session_has_an_empty_grid(self):
+        heat = self.session.heatmap()
+        self.assertEqual((heat["cols"], heat["rows"]), (self.COLS, self.ROWS))
+        self.assertEqual(len(heat["cells"]), self.COLS * self.ROWS)
+        self.assertEqual((heat["max"], heat["total"]), (0, 0))
+
+    def test_a_persons_feet_are_added_to_the_cell_they_stand_in(self):
+        self.feed(person(1, (80, 60)))  # the exact middle of a 160 x 120 picture
+        heat = self.session.heatmap()
+        self.assertEqual(self.cell(heat, self.COLS // 2, self.ROWS // 2), 1)
+        self.assertEqual((heat["max"], heat["total"]), (1, 1))
+
+    def test_standing_still_builds_up_and_everyone_counts(self):
+        self.feed(person(1, (80, 60)), person(2, (10, 10)))
+        self.feed(person(1, (80, 60)))
+        heat = self.session.heatmap()
+        self.assertEqual(self.cell(heat, self.COLS // 2, self.ROWS // 2), 2)
+        self.assertEqual(self.cell(heat, int(10 / 160 * self.COLS), int(10 / 120 * self.ROWS)), 1)
+        self.assertEqual((heat["max"], heat["total"]), (2, 3))
+
+    def test_feet_on_or_beyond_the_picture_edge_stay_in_the_grid(self):
+        self.feed(person(1, (160, 120)), person(2, (-5, -3)))
+        heat = self.session.heatmap()
+        self.assertEqual(self.cell(heat, self.COLS - 1, self.ROWS - 1), 1)
+        self.assertEqual(self.cell(heat, 0, 0), 1)
+
+    def test_it_records_feet_whichever_counting_rule_is_chosen(self):
+        self.session = self.make_session(rule="centre")
+        self.feed(person(1, (80, 60)))
+        self.assertEqual(self.cell(self.session.heatmap(), self.COLS // 2, self.ROWS // 2), 1)
+
+    def test_a_reset_clears_it(self):
+        self.feed(person(1, (80, 60)))
+        self.session.reset()
+        self.assertEqual(self.session.heatmap()["total"], 0)
+
+    def test_it_is_not_part_of_the_polled_state(self):
+        self.assertNotIn("heatmap", self.session.snapshot())
+
+    def test_it_can_be_sent_as_json(self):
+        self.feed(person(1, (80, 60)))
+        self.assertEqual(json.loads(json.dumps(self.session.heatmap()))["total"], 1)
+
+
+class InsightReportTests(SessionTestCase):
+    """The printable report states the counting rule, the manual check and the foot heat-map."""
+
+    def page(self, session=None):
+        session = session or self.session
+        return portal.render_report(session.report(), "clip.mp4", {"w": 160, "h": 120})
+
+    def test_the_default_rule_is_described_as_feet(self):
+        page = self.page()
+        self.assertIn("feet", page)
+        self.assertNotIn("first seen already inside", page)
+
+    def test_the_other_rules_are_described(self):
+        self.assertIn("middle of their box", self.page(self.make_session(rule="centre")))
+        self.assertIn("any part of their box", self.page(self.make_session(rule="overlap")))
+
+    def test_the_first_seen_switch_is_described_when_on(self):
+        self.assertIn("first seen already inside", self.page(self.make_session(count_first_seen_inside=True)))
+
+    def test_no_manual_section_without_a_manual_count(self):
+        self.assertNotIn("Check against a manual count", self.page())
+
+    def test_the_manual_check_is_reported_with_a_caution(self):
+        self.feed(person(1, OUTSIDE_SQUARE))
+        self.feed(person(1, INSIDE_SQUARE))
+        self.session.set_manual_count(3)
+        page = self.page()
+        self.assertIn("Check against a manual count", page)
+        self.assertIn("2 fewer", page)
+        self.assertIn("cancel", page)  # equal totals can hide offsetting mistakes
+
+    def test_the_heatmap_section_says_so_when_nobody_was_seen(self):
+        page = self.page()
+        self.assertIn("Where people walked", page)
+        self.assertIn("No one has been seen yet", page)
+        self.assertNotIn('aria-label="Foot heat-map', page)
+
+    def test_the_heatmap_is_drawn_once_someone_has_been_seen(self):
+        self.feed(person(1, (80, 60)))
+        page = self.page()
+        self.assertIn('aria-label="Foot heat-map', page)
+        self.assertIn("<rect", page)
+
+
+class InsightArgumentTests(unittest.TestCase):
+    """The portal's --rule and --count-first-seen command-line options."""
+
+    def test_defaults_follow_the_settings_in_main(self):
+        args = portal.parse_args([])
+        self.assertEqual((args.rule, args.count_first_seen), (main.COUNT_RULE, main.COUNT_FIRST_SEEN_INSIDE))
+
+    def test_options_are_read(self):
+        args = portal.parse_args(["--rule", "overlap", "--count-first-seen"])
+        self.assertEqual((args.rule, args.count_first_seen), ("overlap", True))
+
+    def test_an_unknown_rule_stops_with_a_message(self):
+        with redirect_stderr(io.StringIO()) as errors, self.assertRaises(SystemExit):
+            portal.parse_args(["--rule", "head"])
+        self.assertIn("feet", errors.getvalue())
+
+
+class HttpInsightsTests(unittest.TestCase):
+    """The HTTP interface for the three insight features."""
+
+    def test_rules_can_be_changed_and_are_reported_in_the_state(self):
+        portal_ = RunningPortal(self, [])
+        status, body = portal_.post_json("/api/rules", {"rule": "centre", "countFirstSeenInside": True})
+        self.assertEqual(status, 200)
+        expected = {"rule": "centre", "countFirstSeenInside": True}
+        self.assertEqual(body["rules"], expected)
+        self.assertEqual(portal_.get_json("/api/state")[1]["rules"], expected)
+
+    def test_a_field_left_out_keeps_its_value(self):
+        portal_ = RunningPortal(self, [])
+        portal_.post_json("/api/rules", {"rule": "overlap"})
+        status, body = portal_.post_json("/api/rules", {"countFirstSeenInside": True})
+        self.assertEqual((status, body["rules"]), (200, {"rule": "overlap", "countFirstSeenInside": True}))
+
+    def test_a_bad_rule_is_refused_with_a_message(self):
+        portal_ = RunningPortal(self, [])
+        status, body = portal_.post_json("/api/rules", {"rule": "head"})
+        self.assertEqual(status, 400)
+        self.assertIn("COUNT_RULE", body["error"])
+        self.assertEqual(portal_.get_json("/api/state")[1]["rules"]["rule"], "feet")
+
+    def test_a_switch_that_is_not_true_or_false_is_refused(self):
+        portal_ = RunningPortal(self, [])
+        status, body = portal_.post_json("/api/rules", {"countFirstSeenInside": "yes"})
+        self.assertEqual(status, 400)
+        self.assertIn("True or False", body["error"])
+
+    def test_manual_count_can_be_set_read_and_cleared(self):
+        portal_ = RunningPortal(self, [])
+        self.assertIsNone(portal_.get_json("/api/state")[1]["manualCheck"])
+        status, body = portal_.post_json("/api/manual", {"count": 4})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["manualCheck"]["manual"], 4)
+        self.assertEqual(portal_.get_json("/api/state")[1]["manualCheck"]["manual"], 4)
+        status, body = portal_.post_json("/api/manual", {"count": None})
+        self.assertEqual((status, body["manualCheck"]), (200, None))
+
+    def test_a_bad_manual_count_is_refused(self):
+        portal_ = RunningPortal(self, [])
+        for bad in (-2, 2.5, "many"):
+            status, body = portal_.post_json("/api/manual", {"count": bad})
+            self.assertEqual(status, 400, bad)
+            self.assertIn("whole number", body["error"])
+
+    def test_a_manual_request_without_a_count_is_refused(self):
+        portal_ = RunningPortal(self, [])
+        status, body = portal_.post_json("/api/manual", {})
+        self.assertEqual(status, 400)
+
+    def test_heatmap_endpoint_returns_the_grid(self):
+        script = [[person(1, (80, 60))]] * 500
+        portal_ = RunningPortal(self, script)
+        self.assertTrue(wait_until(lambda: portal_.get_json("/api/heatmap")[1]["total"] > 0))
+        status, heat = portal_.get_json("/api/heatmap")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(heat["cells"]), heat["cols"] * heat["rows"])
+        self.assertGreater(heat["max"], 0)
+
+    def test_the_new_posts_refuse_other_websites(self):
+        portal_ = RunningPortal(self, [])
+        evil = {"Origin": "https://evil.example"}
+        self.assertEqual(portal_.post_json("/api/rules", {"rule": "centre"}, headers=evil)[0], 403)
+        self.assertEqual(portal_.post_json("/api/manual", {"count": 1}, headers=evil)[0], 403)
+        self.assertEqual(portal_.get_json("/api/state")[1]["rules"]["rule"], "feet")
+        self.assertIsNone(portal_.get_json("/api/state")[1]["manualCheck"])
+
+    def test_the_report_page_shows_the_new_sections(self):
+        portal_ = RunningPortal(self, [])
+        portal_.post_json("/api/manual", {"count": 2})
+        status, _, page = portal_.request("GET", "/report")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Check against a manual count", page)
+        self.assertIn(b"Where people walked", page)
 
 
 if __name__ == "__main__":

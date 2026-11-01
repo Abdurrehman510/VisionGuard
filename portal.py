@@ -29,8 +29,30 @@ DEFAULT_PORT = 8000
 MAX_BODY_BYTES = 64 * 1024  # largest POST body accepted; real requests are a few hundred bytes
 JPEG_QUALITY = 80           # quality of the frames streamed to the page (smaller = faster, blurrier)
 STREAM_BOUNDARY = "frame"   # separator between JPEG frames in the multipart/x-mixed-replace (MJPEG) stream
+HEATMAP_COLS, HEATMAP_ROWS = 64, 48  # foot heat-map grid; coarse on purpose (a density picture, not a path)
+MAX_MANUAL_COUNT = 1_000_000          # largest hand count accepted (guards against typing mistakes)
 OUTSIDE_BOX_COLOR = (240, 176, 95)  # BGR: light blue, matches the "in view" series in the page
 INSIDE_BOX_COLOR = (26, 107, 255)   # BGR: signage orange, matches the zone and the "inside" series
+
+
+# --- Manual-count check ------------------------------------------------------------------------------
+
+def describe_manual_check(system, manual):
+    """Compare the system's entry count with a count made by eye. Returns (difference, percent, summary).
+
+    difference = system - manual (negative: the system counted fewer). percent = how far apart they are as a
+    share of the manual count, or None when the manual count is 0. This is a difference between two counts
+    for one session, not an accuracy figure: see render_report() for the caution printed next to it.
+    """
+    difference = system - manual
+    percent = round(abs(difference) / manual * 100) if manual else None
+    if difference == 0:
+        return 0, 0 if manual else None, f"The system's count matches yours ({manual})."
+    direction = "more" if difference > 0 else "fewer"
+    summary = f"The system counted {abs(difference)} {direction} than you ({system} vs {manual})"
+    if percent is not None:
+        summary += f", {percent}% {'above' if difference > 0 else 'below'} your count"
+    return difference, percent, summary + "."
 
 
 # --- Session: everything that changes while monitoring ---------------------------------------------
@@ -42,9 +64,14 @@ class Session:
     RECENT_EVENTS = 50     # how many of the newest entries the live page lists
     MINUTES_SHOWN = 10     # how many one-minute bars the "entries per minute" chart has
 
-    def __init__(self, zone_fractions, confirm_frames, csv_path, zone_file, default_zone, clock=time.time):
+    def __init__(self, zone_fractions, confirm_frames, csv_path, zone_file, default_zone, clock=time.time,
+                 rule=main.COUNT_RULE, count_first_seen_inside=main.COUNT_FIRST_SEEN_INSIDE):
         """zone_fractions = the zone in use now; default_zone = what "Reset to default" restores;
-        clock = time source (a parameter so tests can control time)."""
+        clock = time source (a parameter so tests can control time); rule and count_first_seen_inside =
+        the starting counting rule (see main.COUNT_RULES), which the page can change later."""
+        main.validate_rule(rule)
+        main.validate_count_first_seen(count_first_seen_inside)
+        self._rule, self._count_first_seen = rule, count_first_seen_inside
         # The monitor thread writes (process) while HTTP threads read (snapshot), so every access takes
         # this lock. It is re-entrant (RLock) so a method holding it can safely call another one that needs it.
         self._lock = threading.RLock()
@@ -57,8 +84,11 @@ class Session:
         self.reset()
 
     def reset(self):
-        """Start a new session: zero the numbers and forget who was where. The zone is kept."""
+        """Start a new session: zero the numbers and forget who was where. The zone and the counting rule are kept."""
         with self._lock:
+            self._seed_pending = False  # a new session starts with nothing remembered, so first sightings count normally
+            self._manual_count = None   # a hand count belongs to one session
+            self._heat = [0] * (HEATMAP_COLS * HEATMAP_ROWS)  # foot positions, row by row
             self._started = self._clock()
             self._zone_states = {}  # track ID -> (confirmed state, frames in the opposite state); see main.find_entries
             self._entry_count = 0
@@ -76,8 +106,13 @@ class Session:
             zone_pixels = main.scale_zone(self._zone, width, height)
             # The counting rules live in main.py, shared with the desktop app, so the portal can never
             # count differently (Scope Rule 6). This also appends each entry to outputs/events.csv.
+            # Right after the zone or the rule changed, everyone already in view is only re-learned, not counted.
+            count_first_seen = self._count_first_seen and not self._seed_pending
             inside_by_id, entered_ids = main.update_monitoring(
-                people, zone_pixels, self._zone_states, self._csv_path, self._confirm_frames)
+                people, zone_pixels, self._zone_states, self._csv_path, self._confirm_frames,
+                self._rule, count_first_seen)
+            self._seed_pending = False
+            self._add_to_heatmap(people, width, height)
             now = self._clock()
             for track_id in entered_ids:
                 self._entry_count += 1
@@ -89,6 +124,62 @@ class Session:
             self._peak_inside = max(self._peak_inside, self._inside)
             self._sample_history(now)
         return inside_by_id, entered_ids
+
+    def _add_to_heatmap(self, people, width, height):
+        """Add one count to the grid cell under each person's feet (bottom-centre of the box).
+
+        Feet are used whichever counting rule is active, because the heat-map answers "where do people really
+        walk?". Only anonymous cell counts are kept: no picture, no track ID, no path.
+        """
+        for _, x1, _, x2, y2, _ in people:
+            col = min(HEATMAP_COLS - 1, max(0, int((x1 + x2) / 2 / width * HEATMAP_COLS)))  # clamp: boxes can stick out of the picture
+            row = min(HEATMAP_ROWS - 1, max(0, int(y2 / height * HEATMAP_ROWS)))
+            self._heat[row * HEATMAP_COLS + col] += 1
+
+    def heatmap(self):
+        """The foot heat-map as plain data: the grid size, one count per cell (row by row), the largest and the total."""
+        with self._lock:
+            return {"cols": HEATMAP_COLS, "rows": HEATMAP_ROWS, "cells": list(self._heat),
+                    "max": max(self._heat), "total": sum(self._heat)}
+
+    def rules(self):
+        """The counting rule in use, in the shape the page and the report use."""
+        with self._lock:
+            return {"rule": self._rule, "countFirstSeenInside": self._count_first_seen}
+
+    @property
+    def rule(self):
+        """Just the rule name ("feet", "centre" or "overlap"); the monitor uses it to draw the right dot."""
+        return self._rule
+
+    def set_rules(self, rule=None, count_first_seen_inside=None):
+        """Change the counting rule while running. A value of None keeps the current one. Raises RuntimeError
+        (nothing changed) for an unusable value. People already in view are not counted as entering because of the change."""
+        with self._lock:
+            rule = self._rule if rule is None else rule
+            switch = self._count_first_seen if count_first_seen_inside is None else count_first_seen_inside
+            main.validate_rule(rule)
+            main.validate_count_first_seen(switch)
+            self._rule, self._count_first_seen = rule, switch
+            self._zone_states = {}  # what "inside" means has changed, so old inside/outside states no longer apply
+            self._seed_pending = True
+
+    def set_manual_count(self, value):
+        """Store the number of entries the user counted by eye (None clears it). Raises RuntimeError if it is not
+        a whole number from 0 to MAX_MANUAL_COUNT."""
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool)
+                                  or not 0 <= value <= MAX_MANUAL_COUNT):
+            raise RuntimeError(f"Enter a whole number from 0 to {MAX_MANUAL_COUNT:,} (the entries you counted yourself).")
+        with self._lock:
+            self._manual_count = value
+
+    def _manual_info(self):
+        """The comparison of the system's count with the hand count, or None if no hand count was entered."""
+        if self._manual_count is None:
+            return None
+        difference, percent, summary = describe_manual_check(self._entry_count, self._manual_count)
+        return {"manual": self._manual_count, "system": self._entry_count, "difference": difference,
+                "percent": percent, "summary": summary}
 
     def _sample_history(self, now):
         """Record people-in-view / people-inside once per elapsed second for the activity chart."""
@@ -104,6 +195,7 @@ class Session:
         with self._lock:
             self._zone = saved
             self._zone_states = {}  # a person's inside/outside state means something new now
+            self._seed_pending = True  # ...and the next frame only re-learns them, so an edit never counts anyone
 
     def reset_zone(self):
         """Delete the saved zone file and go back to the default zone."""
@@ -111,6 +203,7 @@ class Session:
         with self._lock:
             self._zone = list(self._default_zone)
             self._zone_states = {}  # same reason as in set_zone: old inside/outside states no longer apply
+            self._seed_pending = True
 
     def _zone_info(self):
         """The zone as the page needs it: its points, whether it is the default, and its % of the picture."""
@@ -156,6 +249,8 @@ class Session:
                 "perMinute": self._entries_per_minute(now),
                 "events": [self._describe(e) for e in reversed(self._events[-self.RECENT_EVENTS:])],  # newest first
                 "confirmFrames": self._confirm_frames,
+                "rules": self.rules(),
+                "manualCheck": self._manual_info(),
             }
 
     def report(self):
@@ -177,6 +272,9 @@ class Session:
                 "zone": self._zone_info(),
                 "confirmFrames": self._confirm_frames,
                 "perMinute": self._entries_per_minute(now),
+                "rules": self.rules(),
+                "manualCheck": self._manual_info(),
+                "heatmap": self.heatmap(),
             }
 
 
@@ -336,7 +434,7 @@ class Monitor:
             # Only the people are drawn here; the zone itself is drawn by the page on a canvas over the video,
             # which is what makes it editable.
             main.draw_people(frame, people, inside_by_id, outside_color=OUTSIDE_BOX_COLOR,
-                             inside_color=INSIDE_BOX_COLOR, compact=True)
+                             inside_color=INSIDE_BOX_COLOR, compact=True, rule=self._session.rule)
             encoded, buffer = main.cv2.imencode(".jpg", frame, [int(main.cv2.IMWRITE_JPEG_QUALITY), JPEG_QUALITY])
             if not encoded:
                 raise RuntimeError("Could not encode a video frame.")
@@ -408,6 +506,56 @@ def _minute_bars_svg(per_minute):
     return "".join(parts)
 
 
+def _heat_colour(level):
+    """Colour for a heat-map cell: `level` 0 (rarely stood on) to 1 (the busiest cell), blue -> yellow -> orange."""
+    stops = [(0.0, (31, 109, 184)), (0.5, (242, 193, 78)), (1.0, (226, 87, 11))]
+    level = min(1.0, max(0.0, level))
+    for (low, low_rgb), (high, high_rgb) in zip(stops, stops[1:]):
+        if level <= high:
+            share = (level - low) / (high - low)
+            return "#" + "".join(f"{round(a + (b - a) * share):02X}" for a, b in zip(low_rgb, high_rgb))
+    return "#E2570B"
+
+
+def _heatmap_svg(heat, zone_points, frame):
+    """The report's foot heat-map as inline SVG: busier cells are hotter, the zone is outlined on top.
+
+    Brightness uses the square root of the count so one person who stood still for a long time does not
+    make everyone else's walking invisible. There is no camera picture behind it (no footage is stored).
+    """
+    width = 560
+    height = round(width * frame["h"] / frame["w"]) if frame else round(width * 3 / 4)
+    cell_w, cell_h = width / heat["cols"], height / heat["rows"]
+    parts = [f'<svg viewBox="0 0 {width} {height}" role="img" width="100%" style="max-width:560px" '
+             f'aria-label="Foot heat-map: hotter cells are where feet spent more time; the dashed outline is the restricted zone">',
+             f'<rect width="{width}" height="{height}" fill="#0B1015"/>']
+    for index, count in enumerate(heat["cells"]):
+        if count:
+            col, row = index % heat["cols"], index // heat["cols"]
+            colour = _heat_colour((count / heat["max"]) ** 0.5)
+            parts.append(f'<rect x="{col * cell_w:.1f}" y="{row * cell_h:.1f}" width="{cell_w + 0.5:.1f}" '
+                         f'height="{cell_h + 0.5:.1f}" fill="{colour}"/>')
+    outline = " ".join(f"{x * width:.1f},{y * height:.1f}" for x, y in zone_points)
+    parts.append(f'<polygon points="{outline}" fill="none" stroke="#FFFFFF" stroke-width="4"/>')
+    parts.append(f'<polygon points="{outline}" fill="none" stroke="#E2570B" stroke-width="2.5" stroke-dasharray="8 5"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _rule_sentence(rules, confirm_frames):
+    """One plain-language paragraph saying exactly how entries were counted in this session."""
+    what = {"feet": "their feet (the bottom-centre of their box) move from outside the zone to inside it",
+            "centre": "the middle of their box moves from outside the zone to inside it",
+            "overlap": "any part of their box, which was clear of the zone, starts touching it"}[rules["rule"]]
+    text = f"For each tracked person, an entry is counted when {what}, and that stays true for {confirm_frames} frame(s) in a row."
+    if rules["countFirstSeenInside"]:
+        text += (" A person whose ID is first seen already inside the zone is also counted once, so someone who "
+                 "gets a new ID while standing inside can be counted again.")
+    else:
+        text += " A person who is already inside when first detected is not counted."
+    return text
+
+
 def render_report(report, source, frame):
     """A stand-alone, printable HTML report of the session (opened at /report; "Print or save as PDF" uses the browser)."""
     esc = html.escape  # every value that came from outside the template is escaped before it enters the HTML
@@ -433,6 +581,24 @@ def render_report(report, source, frame):
     ]
     summary_rows = "".join(f"<tr><th scope='row'>{esc(str(label))}</th><td>{esc(str(value))}</td></tr>"
                            for label, value in summary)
+    manual = report["manualCheck"]
+    manual_section = ""
+    if manual:
+        manual_section = f"""<section><h2>Check against a manual count</h2>
+<table><tbody><tr><th scope='row'>You counted</th><td>{manual['manual']}</td></tr>
+<tr><th scope='row'>The system counted</th><td>{manual['system']}</td></tr>
+<tr><th scope='row'>Difference (system minus you)</th><td>{manual['difference']:+d}</td></tr></tbody></table>
+<p>{esc(manual['summary'])}</p>
+<p class="note">This compares two totals for one session. It is not an accuracy score: equal totals can hide mistakes
+that cancel out (a missed entry and a false one), and one video says little about other cameras, lighting or crowds.</p></section>"""
+    heat = report["heatmap"]
+    if heat["total"]:
+        heat_body = (_heatmap_svg(heat, zone["points"], frame)
+                     + "<p class=\"meta\">Each cell adds up how often someone's feet were there during this session, "
+                       "so a person who stood still shows as hot. Use it to check that the zone covers where people "
+                       "really walk. No camera picture or per-person path is kept.</p>")
+    else:
+        heat_body = "<p>No one has been seen yet, so there is no heat-map.</p>"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VisionGuard session report</title>
@@ -469,8 +635,10 @@ def render_report(report, source, frame):
 {_minute_bars_svg(report['perMinute'])}</section>
 <section><h2>Restricted zone</h2>
 <p>{len(zone['points'])} corner points, covering {zone['areaPct']}% of the picture
-({'the default shape' if zone['isDefault'] else 'a custom shape drawn in the portal'}). An entry is counted when a
-tracked person's feet move from outside to inside and stay there for {report['confirmFrames']} frame(s) in a row.</p></section>
+({'the default shape' if zone['isDefault'] else 'a custom shape drawn in the portal'}). {esc(_rule_sentence(report['rules'], report['confirmFrames']))}</p></section>
+{manual_section}
+<section><h2>Where people walked</h2>
+{heat_body}</section>
 <section class="log"><h2>Entry log</h2>
 {log}</section>
 <section><h2>How to read these numbers</h2>
@@ -573,6 +741,8 @@ class PortalHandler(BaseHTTPRequestHandler):
             self._serve_page()
         elif path == "/api/state":
             self._json(200, server.monitor.state())
+        elif path == "/api/heatmap":
+            self._json(200, server.session.heatmap())
         elif path == "/api/events.csv":
             data = session_events_csv(server.session.report()).encode()
             self._send(200, "text/csv; charset=utf-8", data,
@@ -645,6 +815,15 @@ class PortalHandler(BaseHTTPRequestHandler):
             elif path == "/api/restart":
                 server.monitor.restart()
                 self._json(200, {"ok": True})
+            elif path == "/api/rules":
+                # Either field may be left out to keep its current value.
+                server.session.set_rules(body.get("rule"), body.get("countFirstSeenInside"))
+                self._json(200, {"ok": True, "rules": server.session.rules()})
+            elif path == "/api/manual":
+                if "count" not in body:
+                    raise RuntimeError('Send {"count": a whole number}, or {"count": null} to clear it.')
+                server.session.set_manual_count(body["count"])
+                self._json(200, {"ok": True, "manualCheck": server.session.snapshot()["manualCheck"]})
             elif path == "/api/speed":
                 server.monitor.set_speed(body.get("speed"))
                 self._json(200, {"ok": True, "speed": float(body["speed"])})  # set_speed has checked it is a number
@@ -679,6 +858,12 @@ def parse_args(argv):
     parser.add_argument("--speed", type=float, default=0.0,
                         help="video files only: 0 = use every frame (default), 1 = normal speed, 2 = twice as fast, "
                              f"up to {main.MAX_SPEED}; frames the detector cannot keep up with are skipped")
+    parser.add_argument("--rule", choices=main.COUNT_RULES, default=main.COUNT_RULE,
+                        help="what counts as inside the zone: feet = bottom-centre of the box (default), "
+                             "centre = middle of the box, overlap = any part of the box touching the zone")
+    parser.add_argument("--count-first-seen", action="store_true", default=main.COUNT_FIRST_SEEN_INSIDE,
+                        help="also count a person whose ID is first seen already inside the zone "
+                             "(off by default; see the README for the trade-off)")
     args = parser.parse_args(argv)
     try:
         main.validate_speed(args.speed)
@@ -696,11 +881,12 @@ def cli(argv=None):
     args = parse_args(sys.argv[1:] if argv is None else argv)
     zone = main.load_zone(main.ZONE_FILE, main.ZONE_POLYGON)
     try:
-        main.validate_config(zone, main.CONFIDENCE_THRESHOLD, main.ZONE_CONFIRM_FRAMES)
+        main.validate_config(zone, main.CONFIDENCE_THRESHOLD, main.ZONE_CONFIRM_FRAMES, args.rule, args.count_first_seen)
     except RuntimeError as error:
         print(error)
         return 1
-    session = Session(zone, main.ZONE_CONFIRM_FRAMES, main.EVENTS_CSV, main.ZONE_FILE, main.ZONE_POLYGON)
+    session = Session(zone, main.ZONE_CONFIRM_FRAMES, main.EVENTS_CSV, main.ZONE_FILE, main.ZONE_POLYGON,
+                      rule=args.rule, count_first_seen_inside=args.count_first_seen)
     is_webcam = main.is_webcam(args.source)
     if args.speed and is_webcam:
         print("Note: --speed only applies to video files; the webcam is always live.")
