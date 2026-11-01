@@ -113,6 +113,7 @@ VisionGuard/
 │   └── test_end_to_end.py         # real model + real video frames (slow)
 └── docs/
     ├── example_events.csv         # event log produced by a full run on the sample video
+    ├── Manual_Verification_Checklist.txt   # step-by-step manual test checklist (print it or tick it in Notepad)
     ├── screenshots/               # screenshots of the application and of the portal
     └── (project documents)
 ```
@@ -374,6 +375,8 @@ camera image of a person):
 | `docs/screenshots/portal_entry_stamp.png` | The moment a new entry arrives: the `ENTRY #4 · ID 9` stamp over the video, the message at the bottom, the counter at 4 and the hatched `Inside now` tile. The zone in this image is a free-form 13-corner shape. |
 | `docs/screenshots/portal_video_playback.png` | A video file at 1× normal speed: the progress bar and video clock (`0:36 / 1:16`), the **Playback speed** dropdown and its explanation. Two workers overlap the small zone on the floor, but their feet are in front of it, so *Entries* stays at 0 (see the note under *Trying the Intel video*). |
 | `docs/screenshots/portal_video_every_frame.png` | The same video with *Every frame* selected: the page states that the 60-frames-per-second clip plays at about 1.5% of normal speed on this computer |
+| `docs/screenshots/portal_heatmap.png` | The **Foot heat-map** switched on over the sample video: the blue-to-orange layer under the zone, the *Less time / More time* colour bar with its privacy note, the *Check against your count* card waiting for a number, and the *What counts as inside* card starting at the bottom |
+| `docs/screenshots/portal_manual_check.png` | The **Check against your count** card after typing `7` and pressing *Compare*: *You counted 7, System counted 5, System minus you −2* and the sentence "The system counted 2 fewer than you (5 vs 7), 29% below your count." **The 7 was typed only to show the layout; it is not a real count of this video.** |
 | `docs/screenshots/portal_crossing_refused.png` | A corner dragged so the shape crosses itself: red edges, a warning and a message, and the zone is left unchanged |
 | `docs/screenshots/portal_phone.png` | The same page on a phone-width screen |
 
@@ -407,6 +410,11 @@ All results below come from runs on one Windows 10 laptop (CPU only, Python 3.12
 They are functional checks against **one sample video**, not an accuracy evaluation: no ground-truth count
 of who really entered the zone was made.
 
+A complete step-by-step manual checklist (setup, the OpenCV window, error messages, the portal on a video and on a
+webcam, zone editing, playback speed, the report, safety checks, shutdown and the files to submit) is in
+`docs/Manual_Verification_Checklist.txt`. Its expected results are the ones described in this README; nothing in it
+has been ticked off for you.
+
 Run the tests yourself:
 
 ```powershell
@@ -414,11 +422,11 @@ python -m unittest tests.test_zone_monitoring tests.test_application tests.test_
 python -m unittest discover -s tests                                                                     # everything, incl. the end-to-end test
 ```
 
-**Result of the latest run (branch `feature/zone-insights`): 289 tests, all passing** (72 in `test_zone_monitoring`,
-23 in `test_application`, 125 in `test_portal`, 25 in `test_speed`, 38 in `test_counting_rules`, 6 in
-`test_end_to_end`). That run took about 55 seconds; an earlier full run on the previous 196 tests took about 3½
-minutes when the laptop was short of free memory. The end-to-end test runs the real model over 300 video frames, so on a slow or
-busy machine it can take a few minutes. The unit tests were written before the code they cover; the end-to-end
+**Result of the latest run (`main`, after `feature/zone-insights` was merged into it on 2026-11-01): 289 tests, all
+passing** (72 in `test_zone_monitoring`, 23 in `test_application`, 125 in `test_portal`, 25 in `test_speed`, 38 in
+`test_counting_rules`, 6 in `test_end_to_end`). That run took about 4¼ minutes (253 seconds); earlier full runs took
+between about 55 seconds and 3½ minutes, depending on how much free memory the laptop had. The end-to-end test runs
+the real model over 300 video frames, so on a slow or busy machine it can take a few minutes. The unit tests were written before the code they cover; the end-to-end
 test was added afterwards to check the pieces work together. The 93 tests added for the zone insights were
 written first and seen failing before the code was written; the end-to-end test still passes with the default settings,
 which shows the defaults behave as before.
@@ -569,6 +577,11 @@ above, which were all re-run, but the long by-hand checks were not repeated.
   playback speed are not in it. It is not a measure of how safe or busy an area is.
 - **The manual check is only as good as the person counting.** It compares two totals; it does not match
   individual entries.
+- **The portal accepts a request that has no `Content-Length` header as an empty one.** A `POST` without that
+  header (including one sent in chunks) is read as an empty body, so the call answers `200` and changes nothing, where `411` (length required)
+  would be the stricter reply. Browsers always send the header, so the page is not affected; it only matters if you
+  call the portal's endpoints with your own tool. Found while testing the rule and manual-count endpoints and left
+  as it is.
 - **The default zone fits the sample video only.** Draw your own zone in the portal (or edit `ZONE_POLYGON`) for
   any other camera view. Shapes whose edges cross or touch are refused; a very thin zone is allowed but people
   will rarely register inside it.

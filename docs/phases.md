@@ -83,13 +83,14 @@ stamp, was confirmed in a second run with reduced motion switched off)
 and in one short session on the owner's webcam. See the README for
 details.
 
-## Phase 5 --- Zone Insights (owner-approved extension, on a branch)
+## Phase 5 --- Zone Insights (owner-approved extension)
 
-**Added after Phase 4, at the project owner's request, and built on the
-separate branch `feature/zone-insights` so the working `main` code stays
-as it was.** Not needed for the SRS acceptance criteria, so it is
-optional and kept apart from the core flow: every new setting defaults to
-the original behaviour.
+**Added after Phase 4, at the project owner's request. It was built on the
+separate branch `feature/zone-insights` so the working `main` code stayed
+as it was while it was tested, and merged into `main` on 2026-11-01.**
+Not needed for the SRS acceptance criteria, so it is optional and kept
+apart from the core flow: every new setting defaults to the original
+behaviour.
 
 Tasks: - **Counting rule:** choose what counts as inside (feet, middle of
 the body, any overlap of the box) and whether a person first seen inside
@@ -105,10 +106,12 @@ are unchanged. - A zone or rule change never counts people already in
 view. - The report states the rule in use. - No footage and no
 per-person path is kept.
 
-**Status: built and tested on the branch; not merged into `main`.**
-289 automated tests pass (93 new). Checked once in a real browser on the
-worker video; the other counting rules were not replayed against a real
-count (see the README).
+**Status: built, tested and merged into `main` (2026-11-01).** 289
+automated tests pass on the merged `main` (93 new). Checked in a real
+browser on the worker video, and once more on 2026-11-01 on an export of
+the same code playing the sample video (heat-map, rule switch and manual
+check all worked). The other counting rules were not replayed against a
+real count (see the README).
 
 ## Priority Rule
 
@@ -139,6 +142,7 @@ Change record:
     and a foot heat-map. Goes beyond the SRS and PRD baseline and
     relaxes Technical Rules 4 and 5 and Scope Rule 6 only as opt-in
     options; defaults are unchanged. Built on branch
-    `feature/zone-insights`, not yet merged. **Still to do by the owner:**
-    add a tracked-change note to `VisionGuard_SRS.docx` and
-    `VisionGuard_PRD.docx` (these Word files were not edited).
+    `feature/zone-insights` and merged into `main` on 2026-11-01.
+    Recorded, together with the playback-speed control, as tracked-change
+    notes in `VisionGuard_SRS.docx` and `VisionGuard_PRD.docx`
+    (Appendix A).

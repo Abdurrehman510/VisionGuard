@@ -1,0 +1,574 @@
+==============================================================================
+ VISIONGUARD - MANUAL VERIFICATION CHECKLIST
+ Real-Time Object Detection and Restricted-Zone Monitoring
+==============================================================================
+
+ Tester name : ______________________________   Date : ____ / ____ / ______
+ Computer    : ______________________________   Windows version : _________
+ Python      : ______________________________   (python --version)
+ Webcam used : ______________________________   (built-in / USB / none)
+ Browser     : ______________________________   (Edge / Chrome / other)
+
+ HOW TO USE THIS FILE
+   - Work from top to bottom. Tick  [x]  when the EXPECTED result happened.
+   - Write FAIL next to an item (and describe it in section 13) if it did not.
+   - Write SKIP if you could not run it (for example: no webcam).
+   - Commands are for Windows PowerShell. Lines starting with ">" are things
+     to type. Do not type the ">" itself.
+   - Do NOT claim a test passed unless you actually did it and saw the result.
+
+ BEFORE YOU START - TWO THINGS TO KNOW
+   1. VisionGuard decides "inside the zone" from the point at the BOTTOM-CENTRE
+      of a person's box, roughly their FEET. A person whose body overlaps the
+      zone but whose feet are outside it is NOT counted. On a laptop webcam you
+      usually see only your upper body, so step back until your whole body is
+      visible, or draw the zone so it reaches the bottom edge of the picture.
+   2. A zone saved from the portal is stored in  zone.json  and is used by BOTH
+      the portal and  main.py.  The built-in zone only fits  vtest.mp4.
+
+==============================================================================
+ SECTION 0 - PREPARATION
+==============================================================================
+
+ [ ] 0.1  Open PowerShell and go to the project folder, then activate the
+          environment:
+              > cd D:\VisionGuard
+              > .\.venv\Scripts\Activate.ps1
+          EXPECT: the prompt starts with (.venv).
+
+ [ ] 0.2  Check the important files exist:
+              > Get-ChildItem main.py, portal.py, requirements.txt, README.md
+              > Get-ChildItem portal_ui\index.html, models\yolov8n.pt
+              > Get-ChildItem inputs\videos
+          EXPECT: all of them are listed; inputs\videos contains vtest.mp4
+                  (and, optionally, the two worker-zone-detection files).
+
+ [ ] 0.3  Make sure no old copy of the program is still running:
+              > Get-Process python -ErrorAction SilentlyContinue
+          EXPECT: nothing listed (or only programs you know are yours).
+
+ [ ] 0.4  Start from a clean state (optional but recommended):
+              - If you want to keep your own zone, copy  zone.json  somewhere
+                safe first, then delete  zone.json  from the project folder.
+              - Delete  outputs\events.csv  (or the whole outputs folder).
+          EXPECT: the program starts with the built-in zone and an empty log.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 1 - AUTOMATED TESTS
+==============================================================================
+
+ [ ] 1.1  Run every automated test (takes about 40 seconds to 4 minutes,
+          depending on free memory):
+              > python -m unittest discover -s tests
+          EXPECT: the last lines read  "Ran <number> tests ..."  and  "OK".
+                  (At the last check the number was 289; the run took
+                  about 4 minutes.)
+          Result: Ran ______ tests   OK / FAILED
+
+ [ ] 1.2  If anything failed, copy the name of the failing test into section 13.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 2 - CORE APPLICATION (OpenCV window) ON THE SAMPLE VIDEO
+==============================================================================
+
+ [ ] 2.1  Make sure the BUILT-IN zone is used (no zone.json in the folder), then:
+              > python main.py inputs\videos\vtest.mp4 --speed 1
+          EXPECT: a window titled "VisionGuard - Press Q or ESC to quit" opens
+                  after a few seconds and plays the video of people walking
+                  across a path.
+
+ [ ] 2.2  Look at the picture.
+          EXPECT: a shaded red zone with the label RESTRICTED ZONE; a box
+                  around each person with "ID <n> Person <confidence>"; a
+                  small dot at each person's feet.
+
+ [ ] 2.3  Look at the panel at the top-left.
+          EXPECT: four lines: "VisionGuard | MONITORING", "Entries: <n>",
+                  "Detected: <n> people", "Zone: CLEAR" (or
+                  "Zone: OCCUPIED (<n> inside)").
+
+ [ ] 2.4  Watch a person walk from outside the zone to inside it.
+          EXPECT: their box turns red and gets the tag INSIDE; Entries goes up
+                  by exactly 1; the zone line turns to OCCUPIED. A person
+                  staying inside does NOT add more entries.
+
+ [ ] 2.5  Look at the terminal while the video plays.
+          EXPECT: a line "ENTRY: ID <n> (total entries: <k>)" for every entry.
+
+ [ ] 2.6  Press  Q  (or  Esc , or close the window) before the video ends.
+          EXPECT: the window closes; the terminal prints "Stopped by user."
+                  and "Entries counted this run: <n> (events file: ...)".
+
+ [ ] 2.7  Open  outputs\events.csv  (Notepad is fine).
+          EXPECT: first line  timestamp,tracking_id,event_type  and one line
+                  per entry, each ending in ENTRY, with a date and time and a
+                  whole-number ID. The number of rows equals the count in 2.6.
+
+ [ ] 2.8  OPTIONAL reference run (takes 2 to 4 minutes): delete outputs, then
+              > python main.py inputs\videos\vtest.mp4
+          and let the whole video play with every frame analysed.
+          EXPECT: the program ends by itself with "End of video." and a total
+                  close to 19 entries (our own run gave 19 entries from 17
+                  different IDs). A difference of a few is normal; a total of
+                  0 or of 100 is not.
+          Your total: ______
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 3 - ERROR HANDLING FROM THE COMMAND LINE
+==============================================================================
+ After each command, check the exit code with:   > $LASTEXITCODE
+ EXPECT for every item below: a clear one-line message, no long error dump,
+ and exit code 1.
+
+ [ ] 3.1  > python main.py inputs\videos\nope.mp4
+          EXPECT: "Video file not found: inputs\videos\nope.mp4"
+
+ [ ] 3.2  > python main.py 9
+          EXPECT: "Webcam 9 is unavailable (not connected or in use)."
+
+ [ ] 3.3  > python main.py requirements.txt
+          EXPECT: "Could not open video file: requirements.txt"
+
+ [ ] 3.4  > python main.py inputs\videos\vtest.mp4 --speed 99
+          EXPECT: a message saying the playback speed must be a number from 0
+                  to 16.
+
+ [ ] 3.5  > python main.py inputs\videos\vtest.mp4 --speed
+          EXPECT: "--speed needs a number after it, for example: --speed 1"
+
+ [ ] 3.6  > python main.py inputs\videos\vtest.mp4 --speed quick
+          EXPECT: "--speed must be a number, not 'quick'."
+
+ [ ] 3.7  OPTIONAL - a damaged saved zone. Create a file zone.json containing
+          exactly:   {"points": [[100, 100], [300, 100], [300, 300]]}
+          then run  > python main.py inputs\videos\vtest.mp4  and press Q
+          after the window opens.
+          EXPECT: the message "Ignoring the saved zone in ... Using the default
+                  zone." and the program still runs. Delete zone.json after.
+
+ [ ] 3.8  Confirm no program or window is left behind after each failure.
+              > Get-Process python -ErrorAction SilentlyContinue
+          EXPECT: nothing left running.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 4 - WEB PORTAL ON A VIDEO
+==============================================================================
+
+ [ ] 4.1  Start the portal on the sample video:
+              > python portal.py inputs\videos\vtest.mp4 --speed 1
+          EXPECT: the terminal prints "VisionGuard portal is running at
+                  http://127.0.0.1:8000" and your browser opens that page.
+                  The status first says STARTING, then MONITORING (this can take
+                  from a few seconds to about a minute).
+
+ [ ] 4.2  Look at the top of the page.
+          EXPECT: the VisionGuard name, a MONITORING pill, "Source vtest.mp4",
+                  a detector speed in fps, and a Session clock counting up.
+
+ [ ] 4.3  Click  Reset to default  (below the video) so the built-in zone is
+          used with this video.
+          EXPECT: a hatched orange zone appears on the video.
+
+ [ ] 4.4  Watch the video.
+          EXPECT: boxes with "ID <n> <confidence>": light blue outside the
+                  zone, orange (with the word INSIDE) inside it.
+
+ [ ] 4.5  When a person enters the zone:
+          EXPECT: the big ENTRIES number goes up by 1; a message appears at
+                  the bottom ("Entry #n: tracking ID x entered the zone"); an
+                  ENTRY stamp slides over the top-right of the video (unless
+                  your computer is set to "reduce motion"); a new row appears
+                  in the ENTRY LOG; the INSIDE NOW tile turns hatched orange.
+
+ [ ] 4.6  Look at the four tiles and the two charts.
+          EXPECT: INSIDE NOW, IN VIEW, MOST AT ONCE and TRACKING IDS update
+                  as people move; the "Activity, last 3 minutes" chart draws a
+                  blue line (in view) and an orange line (inside); hovering over
+                  it shows a small read-out; "Show as table" shows the numbers;
+                  "Entries per minute" shows bars.
+
+ [ ] 4.7  Click the moon button at the top-right.
+          EXPECT: the page switches between light and dark and stays readable.
+
+ [ ] 4.8  Make the browser window narrow (about phone width) or press Ctrl and
+          scroll to zoom in.
+          EXPECT: the columns stack; nothing needs sideways scrolling.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 5 - ZONE EDITING IN THE PORTAL
+==============================================================================
+
+ [ ] 5.1  Click  Edit shape  (or press E).
+          EXPECT: square handles appear on the corners and small "+" circles on
+                  the edges; the area outside the zone is dimmed; a chip says
+                  EDITING ZONE.
+
+ [ ] 5.2  Drag a square corner to a new place and let go.
+          EXPECT: the corner moves; a message says the zone was saved; the next
+                  frames use the new shape.
+
+ [ ] 5.3  Drag a "+" on an edge outward.
+          EXPECT: a new corner is created where you drop it.
+
+ [ ] 5.4  Drag inside the shape.
+          EXPECT: the whole zone moves and cannot be dragged off the picture.
+
+ [ ] 5.5  Double-click a corner (or right-click it, or click it and press Del).
+          EXPECT: that corner is removed. With only 3 corners left, removal is
+                  refused with a message.
+
+ [ ] 5.6  Open the  Shapes...  menu and choose Star, then L-shape.
+          EXPECT: the zone is replaced each time (a star has 10 corners and is
+                  concave, which is allowed).
+
+ [ ] 5.7  Move the  Size  slider to about 60 percent, then let go.
+          EXPECT: the zone shrinks around its centre and the slider returns to
+                  100 percent.
+
+ [ ] 5.8  Press  Z  (undo) a few times, then  Y  (redo).
+          EXPECT: the zone steps back and forward through your changes.
+
+ [ ] 5.9  Click  Draw new  (or press D) and click out about five corners; click
+          the first corner (or press Enter) to finish.
+          EXPECT: a ring marks the first corner; the finished shape is saved and
+                  you are left in edit mode. Backspace removes the last corner
+                  while drawing; Esc cancels.
+
+ [ ] 5.10 Drag one corner across the opposite edge so the outline crosses
+          itself.
+          EXPECT: the crossing edges turn red; a red message says the shape
+                  crosses itself; the zone is NOT changed. Press Esc to go back.
+
+ [ ] 5.11 Open "Edit points by numbers", change one "Across %" value, press
+          Tab.
+          EXPECT: that corner moves to the typed position and the change is
+                  saved. A value that would make the shape cross itself is
+                  refused with a message.
+
+ [ ] 5.12 Click  Reset to default.
+          EXPECT: the original four-corner trapezoid returns; the readout says
+                  "Default shape".
+
+ [ ] 5.13 Make a custom zone again, then look in the project folder.
+          EXPECT: a file  zone.json  exists. Stop the portal (Ctrl+C in the
+                  terminal), then run  > python main.py inputs\videos\vtest.mp4
+                  EXPECT: the OpenCV window shows your custom zone (same shape).
+                  Press Q. Delete zone.json afterwards if you want the default.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 6 - VIDEO CONTROLS IN THE PORTAL
+==============================================================================
+ (Start again with:  > python portal.py inputs\videos\vtest.mp4 --speed 1 )
+
+ [ ] 6.1  Look under the video.
+          EXPECT: a progress bar, a clock such as "0:36 / 1:16", a
+                  "Playback speed" dropdown and one line of explanation.
+          The clock must advance about one second per real second at 1x.
+
+ [ ] 6.2  Choose "Every frame (slowest)" in the dropdown.
+          EXPECT: the explanation changes to say how slowly the video really
+                  plays on this computer (it may say "about 1.5%" for a 1080p
+                  video, or give no percentage for a light video).
+
+ [ ] 6.3  Choose 4x, then 0.5x, then 1x normal speed.
+          EXPECT: each choice shows a message and changes the playback speed;
+                  the explanation text updates.
+
+ [ ] 6.4  Click  Pause  (or press Space).
+          EXPECT: the picture freezes; the pill says PAUSED; the button now says
+                  "Resume". Wait 10 seconds, then Resume: the video continues
+                  from where it was and does NOT jump ahead.
+
+ [ ] 6.5  Click  Reset counters  once.
+          EXPECT: the button changes to "Click again to confirm".
+          Click it again within about 3 seconds.
+          EXPECT: the numbers go back to 0 and the entry log empties, but
+                  outputs\events.csv keeps the earlier rows.
+
+ [ ] 6.6  Let the video reach its end (or drag nothing - just wait).
+          EXPECT: a dark panel "Video ended" with a  Play again  button; the
+                  pill says VIDEO ENDED.
+
+ [ ] 6.7  Click  Play again  (or  Restart source ).
+          EXPECT: the video starts again from the beginning with counters at 0.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 7 - WEB PORTAL ON THE WEBCAM
+==============================================================================
+ Skip this section (write SKIP) if there is no webcam.
+ Close any other program that uses the camera first (Zoom, Teams, camera app).
+
+ [ ] 7.1  > python portal.py
+          EXPECT: the page opens; STARTING then MONITORING; Source "Webcam 0";
+                  your live picture; no playback bar (it is for video files).
+
+ [ ] 7.2  Move around in front of the camera.
+          EXPECT: a box with an ID follows you; IN VIEW shows 1.
+
+ [ ] 7.3  Draw a zone on the part of the picture you can walk into (it must
+          reach where your FEET appear), step back so your whole body is
+          visible, and walk into the zone.
+          EXPECT: Entries goes up by 1 and a row is added to the log. Standing
+                  still inside adds nothing. Walk out and back in: +1 again.
+          (If nothing counts while your body overlaps the zone, your feet are
+          outside it - see the note at the top of this file.)
+
+ [ ] 7.4  Cover the camera or unplug it (USB) while the page is open.
+          EXPECT: a panel "Camera problem" with a message and a Retry button;
+                  the program does not crash.
+
+ [ ] 7.5  Close the page's tab and wait 20 seconds.
+          EXPECT: the program keeps running (closing the tab does not stop it).
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 8 - SESSION REPORT AND CSV DOWNLOAD
+==============================================================================
+
+ [ ] 8.1  In the portal, make at least two entries, then look at the
+          "Session report" card.
+          EXPECT: session length, entries, entries per minute, most people in
+                  view and most inside the zone.
+
+ [ ] 8.2  Click  Open full report.
+          EXPECT: a new tab shows: Summary, Entries per minute (last 10
+                  minutes), Restricted zone, Entry log, and the heading "How to
+                  read these numbers" with the warning that tracking IDs are
+                  temporary and counts are not guaranteed exact.
+
+ [ ] 8.3  On the report tab click "Print or save as PDF", choose "Save as PDF",
+          paper size A4, and save.
+          EXPECT: the PDF opens; no heading is left alone at the bottom of a
+                  page; a long entry log continues on the next page with its
+                  column titles repeated; no row is cut in half.
+
+ [ ] 8.4  Click  Download CSV  in the portal.
+          EXPECT: a file  visionguard_session_events.csv  is saved. Open it:
+                  the columns are  timestamp,tracking_id,event_type  and the
+                  rows match the entry log on the page.
+
+ [ ] 8.5  Compare three places: the page's ENTRIES number, the report's
+          "Entries counted", and the number of rows in the downloaded CSV.
+          EXPECT: all three are equal.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 9 - SAFETY CHECKS (PORTAL IS FOR THIS COMPUTER ONLY)
+==============================================================================
+
+ [ ] 9.1  With the portal running, open a second PowerShell window and run:
+              > netstat -ano | findstr :8000
+          EXPECT: the listening address is 127.0.0.1:8000 (NOT 0.0.0.0:8000).
+
+ [ ] 9.2  In the browser, open  http://localhost:8000
+          EXPECT: the page works.
+
+ [ ] 9.3  OPTIONAL - from another device on the same network, try to open
+          http://<this-computer's-IP>:8000
+          EXPECT: it does NOT load.
+
+ [ ] 9.4  Try to start a second portal while the first is running:
+              > python portal.py inputs\videos\vtest.mp4
+          EXPECT: a clear message that port 8000 is in use and a hint to use
+                  --port 8001; no crash.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 10 - SHUTDOWN AND RESOURCES
+==============================================================================
+
+ [ ] 10.1 Press  Ctrl+C  in the terminal that runs the portal.
+          EXPECT: "Stopping..." and the prompt returns.
+
+ [ ] 10.2 Check nothing is left behind:
+              > Get-Process python -ErrorAction SilentlyContinue
+              > netstat -ano | findstr :8000
+          EXPECT: no leftover Python process and nothing listening on 8000.
+
+ [ ] 10.3 If you used the webcam: the camera light is off and another program
+          (for example the Windows Camera app) can use the camera.
+
+ [ ] 10.4 The browser tab you left open shows a "lost connection" banner and
+          does no harm. Close it.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 11 - OPTIONAL SECOND VIDEO (Intel worker clip)
+==============================================================================
+ Only if  inputs\videos\worker-zone-detection-small.mp4  (or the full-size
+ worker-zone-detection.mp4) is in the folder.
+
+ [ ] 11.1  > python portal.py inputs\videos\worker-zone-detection-small.mp4 --speed 1
+           EXPECT: a warehouse floor with red lines; two workers walk past,
+                   one after another; the clip lasts about 76 seconds.
+
+ [ ] 11.2  Draw a zone in the middle-right of the picture (about 60 to 88
+           percent across, 50 to 80 percent down), or save this as zone.json
+           first:   {"points": [[0.6, 0.5], [0.88, 0.5], [0.88, 0.8], [0.6, 0.8]]}
+           EXPECT: about 6 entries, one per worker (our own check counted 6
+                   of 6 correctly; tracking can differ slightly on this lighter
+                   copy).
+
+ [ ] 11.3  Draw a small zone on the floor FARTHER BACK than where the workers'
+           feet are. Workers overlap it but entries stay at 0.
+           EXPECT: this is the "feet rule" in action, not a fault.
+           Delete zone.json when you finish.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 11B - ZONE INSIGHTS (foot heat-map, counting rule, count check)
+==============================================================================
+ These three features were built on the git branch  feature/zone-insights
+ and were merged into main on 2026-11-01, so they are part of main now.
+ FIRST CHECK:   > git branch --show-current
+                > Select-String portal.py -Pattern "heatmap" -SimpleMatch
+ If portal.py has no "heatmap" line, you are on an older copy of the project:
+ write SKIP for the whole section and say so in section 13.
+ (Start the portal with:  > python portal.py inputs\videos\vtest.mp4 --speed 1 )
+
+ [ ] 11B.1  Look for the "Foot heat-map" button above the video (key H).
+            Click it.
+            EXPECT: a soft blue-to-orange layer appears over the video, with a
+                    "Less time ... More time" colour bar and a note saying only
+                    counts per area are kept (no picture, no path of anyone).
+                    Hotter colour = feet spent more time there. Click again:
+                    the layer disappears.
+
+ [ ] 11B.2  With the portal running, in a second PowerShell window:
+                > Invoke-RestMethod http://127.0.0.1:8000/api/heatmap
+            EXPECT: only these fields - cols (64), rows (48), cells, max,
+                    total. No tracking IDs and no positions over time.
+
+ [ ] 11B.3  Find the "What counts as inside" card.
+            EXPECT: three choices - Feet (marked default and selected), Middle
+                    of the body, Any overlap - and an unticked box "Also count
+                    people who first appear already inside". The label at the
+                    top right of the card says "Feet".
+
+ [ ] 11B.4  Choose "Any overlap".
+            EXPECT: the label changes to "Any overlap" and a message confirms
+                    it applies from the next frame. A person whose box only
+                    touches the zone edge is now tagged INSIDE. People already
+                    in view are NOT counted as entering because of the change.
+            Then choose "Middle of the body": the label follows.
+
+ [ ] 11B.5  Tick "Also count people who first appear already inside".
+            EXPECT: the label gains "+ first-seen". A person who is first seen
+                    inside the zone is now counted once. (Expect the total to
+                    rise, never fall. We have NOT yet measured by how much on
+                    the worker video.)
+
+ [ ] 11B.6  Put everything back: choose "Feet" and untick the box.
+            EXPECT: the label says "Feet" again. (The OpenCV window,
+            python main.py, uses COUNT_RULE and COUNT_FIRST_SEEN_INSIDE at the
+            top of main.py instead; the defaults are "feet" and False.)
+
+ [ ] 11B.7  Find the "Check against your count" card. Watch the video, count
+            the entries yourself, type your number, click Compare.
+            EXPECT: three figures (You counted / System counted / System
+                    minus you) and one sentence, for example "The system
+                    counted 2 fewer than you (5 vs 7), 29% below your count."
+                    The card repeats that this is NOT an accuracy score.
+            Also try 0 (EXPECT: a sentence with no percentage), then -5, 3.5
+            and the word six (EXPECT: each refused with "Enter a whole number
+            from 0 to 1,000,000 ..."). Click Clear: the result disappears.
+
+ [ ] 11B.8  With a hand count entered, click "Open full report".
+            EXPECT: a section "Check against a manual count" with the same
+                    figures and the same caution, and the report also has one
+                    plain sentence saying how entries were counted (feet,
+                    middle of the body or any overlap) and whether a person
+                    first seen already inside is counted.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 12 - FILES AND DOCUMENTS BEFORE SUBMISSION
+==============================================================================
+
+ [ ] 12.1  Delete your personal files so the project starts clean:
+               > Remove-Item zone.json -ErrorAction SilentlyContinue
+               > Remove-Item outputs -Recurse -ErrorAction SilentlyContinue
+           EXPECT: neither exists afterwards.
+
+ [ ] 12.2  The submission folder contains: main.py, portal.py, portal_ui\,
+           requirements.txt, README.md, models\, inputs\, tests\, docs\.
+           It does NOT contain  .venv\  (recreate it with the README steps).
+
+ [ ] 12.3  docs\ contains: architecture.md, design.md, phases.md, rules.md,
+           skills.md, role.md, example_events.csv, this checklist, the SRS and
+           PRD Word files, and a screenshots folder with the screenshots listed
+           in the README.
+
+ [ ] 12.4  Open VisionGuard_SRS.docx and VisionGuard_PRD.docx in Word and go to
+           the last pages.
+           EXPECT: an "Appendix A. Change note: optional local web portal".
+           It is stored as TRACKED CHANGES (Review tab), so you can accept it
+           or reject it; rejecting restores the original approved text.
+
+ [ ] 12.5  Check the README against reality: the install and run commands in it
+           work when typed exactly as written.
+
+ [ ] 12.6  OPTIONAL - the intel video (worker-zone-detection*.mp4) has no stated
+           licence for the video file itself. Remove it from the submission if
+           you are unsure.
+
+ Notes: ______________________________________________________________________
+
+==============================================================================
+ SECTION 13 - DEFECT LOG AND RESULT
+==============================================================================
+
+ Item no. | What I did | What I expected | What happened | Severity (L/M/H)
+ ---------+------------+-----------------+---------------+-----------------
+          |            |                 |               |
+          |            |                 |               |
+          |            |                 |               |
+          |            |                 |               |
+          |            |                 |               |
+
+ SUMMARY
+   Sections completed : ______ of 12
+   Items passed       : ______      Items failed : ______     Skipped : ______
+   Automated tests    : Ran ______  OK / FAILED
+
+ LIMITS TO REMEMBER WHEN YOU SIGN THIS OFF (these are known, not defects)
+   - Counts are not guaranteed exact. Tracking IDs are temporary labels; the
+     same person can get a new ID and be counted again, or be missed.
+   - Only the bottom-centre ("feet") of a box decides inside or outside.
+   - A person first seen already inside the zone is not counted.
+   - A change must last 3 analysed frames to count (filters one-frame flicker).
+   - Using a playback speed skips frames, so a very fast walker crossing a thin
+     zone can be missed. "Every frame" is the most exact but may be very slow.
+   - Detection speed depends on free memory; with little free memory a video
+     can play at a few percent of normal speed unless a playback speed is set.
+   - This project was developed and tested on Windows 10 with Python 3.12.7.
+   - Results on one sample video do not prove reliable behaviour in other
+     lighting, camera angles or crowds.
+
+ Overall result :   PASS   /   PASS WITH NOTES   /   FAIL
+
+ Signed : ______________________________   Date : ____ / ____ / ______
+
+==============================================================================
+ END OF CHECKLIST
+==============================================================================

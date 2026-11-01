@@ -104,6 +104,35 @@ frames can make a very fast walker crossing a thin zone be missed. The
 strip is hidden for a webcam. When the video ends the page says "Video
 ended" and offers Play again.
 
+**Zone insights.** Three optional aids that help place the zone and judge
+the count; none of them changes anything until the person uses it.
+
+-   *Foot heat-map.* A button above the video (key `H`) shades the picture
+    from blue (less time) to orange (more time) by where people's feet
+    have been, with a small colour bar ("Less time" to "More time") and a
+    one-line note that only counts per area are kept, with no picture and
+    no path of any person. It is drawn underneath the zone and the boxes,
+    so the zone and labels stay readable. The shading is a hint, not a
+    measurement: it is coarse and says nothing until people have been
+    seen.
+-   *What counts as inside.* A card under the zone tools with three
+    choices, each with a one-line plain explanation: *Feet* (the default),
+    *Middle of the body* and *Any overlap*, plus a tick box *Also count
+    people who first appear already inside* (off by default, with its
+    drawback written beside it). The chosen rule is shown as a short label
+    in the card title and in the report. A small dot on each person shows
+    the point being tested (the feet point, or the middle of the box); with
+    *Any overlap* there is no dot, because the whole box counts. The same
+    dot appears in the OpenCV window.
+-   *Check against your count.* A card between the counter tiles and the
+    activity chart: one number box and a Compare button. The answer is
+    three figures (You counted, System counted, System minus you) and one
+    plain sentence such as "The system counted 2 fewer than you (5 vs 7),
+    29% below your count." A fixed caution says it compares two totals, is
+    not an accuracy score, and that one video says little about other
+    cameras. Clear removes it. The same figures and caution appear in the
+    report.
+
 **Colour and charts.** The two chart colours were checked with the data
 visualisation palette validator (lightness, colourfulness, colour-blind
 separation, normal-vision separation and contrast) in both themes. Counts
@@ -112,7 +141,7 @@ a hover read-out; the activity chart also has a legend, direct labels at
 the end of each line and a table view.
 
 **Accessibility.** Real buttons with visible keyboard focus, keyboard
-shortcuts (`E`, `D`, `Z`, `Y`, `Space`, `Esc`, `Del`), an alternative
+shortcuts (`E`, `D`, `Z`, `Y`, `H`, `Space`, `Esc`, `Del`), an alternative
 numeric way to edit every corner, status shown by text as well as colour,
 and animations that switch off when the system asks for reduced motion
 (a message appears instead).
