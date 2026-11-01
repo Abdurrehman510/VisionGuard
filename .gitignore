@@ -1,0 +1,16 @@
+# Virtual environment and Python caches (recreate with: pip install -r requirements.txt)
+.venv/
+__pycache__/
+*.pyc
+
+# Throwaway working files
+.work/
+
+# Generated at run time (the example log is kept in docs/example_events.csv)
+outputs/
+
+# A zone you drew in the web portal is personal to your camera view
+zone.json
+
+# Local Claude Code settings (machine-specific paths and permissions)
+.claude/

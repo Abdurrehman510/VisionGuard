@@ -1,0 +1,114 @@
+# Phase 3: Testing, Finalization & Documentation
+
+**Project:** VisionGuard – Real-Time Object Detection and Restricted-Zone Monitoring System
+
+### 1. Objective
+
+Finalize the existing VisionGuard application by testing all implemented features, fixing bugs, improving usability, and preparing it for the final college demonstration.
+
+Do not rebuild the application. Work with the existing Phase 1 and Phase 2 implementation.
+
+### 2. Required Tasks
+
+1. **Functional Testing:** Test person detection, tracking IDs, restricted-zone detection, entry counting, and CSV event logging.
+2. **Bug Fixing:** Identify and fix errors, duplicate entry counts, incorrect zone detection, and video-processing issues.
+3. **Input Validation:** Handle missing video files, unavailable webcams, invalid configurations, and missing dependencies.
+4. **UI Improvements:** Make the OpenCV display clean and readable. Clearly show:
+   - Person bounding boxes.
+   - Tracking IDs.
+   - Restricted-zone boundary.
+   - Entry counter.
+   - Current detection status.
+5. **CSV Verification:** Ensure entry events are recorded correctly with timestamps, tracking IDs, and event types.
+6. **Resource Management:** Ensure the application releases camera/video resources and closes windows properly.
+7. **Documentation:** Complete the README with installation, dependencies, execution steps, project features, and limitations.
+
+### 3. Testing Requirements
+
+Test the following scenarios:
+
+| Test | Expected Result |
+|---|---|
+| Person outside zone | No entry recorded |
+| Person enters zone | Entry counter increases |
+| Person remains inside | No duplicate count |
+| Person exits zone | No new entry |
+| Person re-enters | New entry recorded |
+| Multiple people enter | Entries counted individually |
+| CSV logging | Correct event records saved |
+| Invalid video path | Clear error displayed |
+| Webcam unavailable | Graceful error handling |
+| Application exit | Resources released safely |
+
+### 4. UI Requirements
+
+Keep the interface simple and professional.
+
+Display:
+- Project name: VisionGuard.
+- Person detection bounding boxes and tracking IDs.
+- Restricted-zone polygon.
+- Total entry count.
+- Monitoring status.
+
+Do not build a separate dashboard unless the existing application requires it.
+
+### 5. Documentation Requirements
+
+Update `README.md` to include:
+
+- Project introduction.
+- Problem statement.
+- Project objectives.
+- Features.
+- Technology stack.
+- Project structure.
+- Installation instructions.
+- How to run the application.
+- Sample output.
+- Limitations and future improvements.
+
+### 6. Final Deliverables
+
+Prepare:
+
+1. Final working source code.
+2. Updated `requirements.txt`.
+3. Complete `README.md`.
+4. Sample video input.
+5. CSV event log demonstrating successful entries.
+6. Screenshots of person detection and restricted-zone monitoring.
+7. Test results.
+8. Final project folder ready for submission.
+
+### 7. Restrictions
+
+Do not introduce unnecessary features such as:
+
+- Face recognition.
+- Multiple cameras or restricted zones.
+- Database or backend.
+- Cloud deployment.
+- Mobile applications.
+- Authentication systems.
+- Email, SMS, or WhatsApp notifications.
+- Custom model training.
+- Complex dashboards.
+
+Focus on completing and stabilizing the existing system.
+
+### 8. Completion Criteria
+
+Phase 3 is complete when:
+
+- All core features from Phases 1 and 2 work together.
+- Major bugs are fixed.
+- Required test cases have been executed.
+- CSV event logging works correctly.
+- Documentation is complete.
+- Screenshots and demonstration materials are ready.
+- The project can be executed using the README instructions.
+
+Do not claim that a test passed unless it was actually executed.
+
+At the end, provide a final completion report covering implemented features, test results, modified files, known limitations, and submission readiness.

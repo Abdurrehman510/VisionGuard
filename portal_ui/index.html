@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VisionGuard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314202B'/%3E%3Cpath d='M7 9h18v14H7z' fill='none' stroke='%23FF6B1A' stroke-width='3' stroke-dasharray='5 3'/%3E%3C/svg%3E">
+<style>
+/* ---------- tokens ---------- */
+:root {
+  --display: Bahnschrift, "DIN Alternate", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+
+  --ground: #EEF1EE;      /* drafting paper */
+  --surface: #FFFFFF;
+  --surface-2: #F5F7F5;
+  --ink: #14202B;
+  --ink-2: #44525E;
+  --muted: #5B6B78;
+  --rule: #D3DAD6;
+  --rule-strong: #14202B;
+  --zone: #E2570B;        /* restricted-area signage orange; also the "inside zone" series */
+  --series-view: #1F6DB8; /* "in view" series */
+  --ok: #0B7A5A;
+  --warn: #9A5B00;
+  --danger: #C0262D;
+  --btn-bg: #14202B;
+  --btn-ink: #FFFFFF;
+  --focus: #1F6DB8;
+  --shadow: 0 1px 0 rgba(20,32,43,.04), 0 8px 24px -12px rgba(20,32,43,.18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0E1418; --surface: #151D22; --surface-2: #1B252B;
+    --ink: #E7EEF0; --ink-2: #B4C0C6; --muted: #8C9AA3; --rule: #2A3740; --rule-strong: #E7EEF0;
+    --zone: #E8692B; --series-view: #3F90D4; --ok: #3CCB9B; --warn: #E0A53A; --danger: #FF7A7A;
+    --btn-bg: #E7EEF0; --btn-ink: #0E1418; --focus: #6DB3E3;
+    --shadow: 0 1px 0 rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0E1418; --surface: #151D22; --surface-2: #1B252B;
+  --ink: #E7EEF0; --ink-2: #B4C0C6; --muted: #8C9AA3; --rule: #2A3740; --rule-strong: #E7EEF0;
+  --zone: #E8692B; --series-view: #3F90D4; --ok: #3CCB9B; --warn: #E0A53A; --danger: #FF7A7A;
+  --btn-bg: #E7EEF0; --btn-ink: #0E1418; --focus: #6DB3E3;
+  --shadow: 0 1px 0 rgba(0,0,0,.4), 0 10px 28px -14px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+
+/* ---------- base ---------- */
+* { box-sizing: border-box; }
+html { background: var(--ground); }
+body {
+  margin: 0; padding: 0 clamp(16px, 3vw, 32px) 40px;
+  background: var(--ground); color: var(--ink);
+  font: 14px/1.45 var(--body);
+  background-image: linear-gradient(var(--rule) 1px, transparent 1px), linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+  background-size: 48px 48px; background-position: -1px -1px;
+  background-attachment: fixed;
+}
+body::before { content: ""; position: fixed; inset: 0; background: var(--ground); opacity: .86; z-index: -1; }
+.wrap { max-width: 1480px; margin: 0 auto; }
+h1, h2, h3, p { margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font: 600 11px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+
+/* ---------- header ---------- */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 18px 0 16px; }
+.brand { display: flex; align-items: center; gap: 12px; margin-right: auto; }
+.brand-mark { width: 38px; height: 38px; border-radius: 8px; background: var(--rule-strong); display: grid; place-items: center; }
+.brand-mark svg { width: 24px; height: 24px; }
+.brand h1 { font: 700 26px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; font-variation-settings: "wdth" 88; }
+.brand p { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border: 1.5px solid currentColor; border-radius: 999px; font: 700 12px/1 var(--display); letter-spacing: .12em; text-transform: uppercase; }
+.pill i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.pill[data-status="monitoring"] { color: var(--ok); }
+.pill[data-status="monitoring"] i { animation: pulse 1.8s ease-out infinite; }
+.pill[data-status="paused"] { color: var(--warn); }
+.pill[data-status="error"], .pill[data-status="offline"] { color: var(--danger); }
+.pill[data-status="ended"], .pill[data-status="starting"] { color: var(--ink-2); }
+.pill[data-status="starting"] i { animation: blink 1s steps(2) infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+@keyframes blink { 50% { opacity: .25; } }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; color: var(--ink-2); font-size: 13px; }
+.meta b { color: var(--ink); font-weight: 600; }
+.icon-btn { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--rule); background: var(--surface); border-radius: 8px; cursor: pointer; }
+.icon-btn:hover { border-color: var(--rule-strong); }
+.banner { display: none; margin: 0 0 14px; padding: 10px 14px; background: color-mix(in srgb, var(--danger) 12%, var(--surface)); border: 1px solid var(--danger); border-left-width: 5px; color: var(--ink); border-radius: 6px; }
+.banner.show { display: block; }
+
+/* ---------- layout ---------- */
+.grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); align-items: start; }
+.col { display: grid; gap: 20px; min-width: 0; }
+@media (max-width: 1020px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow); min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 18px 0; }
+.card-head h2 { font: 700 15px/1.1 var(--display); letter-spacing: .1em; text-transform: uppercase; }
+.card-body { padding: 14px 18px 18px; }
+
+/* ---------- buttons ---------- */
+.btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; min-height: 34px; border: 1px solid var(--rule); border-radius: 7px; background: var(--surface); cursor: pointer; font-weight: 600; font-size: 13px; line-height: 1.1; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--rule-strong); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn[aria-pressed="true"] { background: var(--btn-bg); color: var(--btn-ink); border-color: var(--btn-bg); }
+.btn.primary { background: var(--btn-bg); color: var(--btn-ink); border-color: var(--btn-bg); }
+.btn.danger-ready { border-color: var(--danger); color: var(--danger); }
+.btn svg { width: 15px; height: 15px; flex: none; }
+.btn kbd { font: 600 10px var(--mono); padding: 1px 5px; border: 1px solid currentColor; border-radius: 4px; opacity: .6; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* ---------- live view ---------- */
+.stage-wrap { padding: 14px 18px 0; }
+.stage { position: relative; width: min(100%, calc(74vh * var(--aspect, 1.3333))); background: #0B1015; border-radius: 6px; overflow: hidden; aspect-ratio: var(--aspect, 1.3333); margin: 0 auto;
+  background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 32px 32px; }
+.stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; display: none; }
+.stage.has-frame img { display: block; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: pan-y; }
+.stage.editing canvas { touch-action: none; }
+.veil { position: absolute; inset: 0; display: none; place-items: center; text-align: center; padding: 24px; color: #E7EEF0; background: rgba(8,12,16,.72); }
+.veil.show { display: grid; }
+.veil h3 { font: 700 22px/1.1 var(--display); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
+.veil p { max-width: 46ch; margin: 0 auto 14px; color: #B4C0C6; }
+.veil .btn { background: #E7EEF0; color: #0E1418; border-color: #E7EEF0; }
+.spinner { width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.2); border-top-color: #FF6B1A; border-radius: 50%; margin: 0 auto 14px; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.stage-chip { position: absolute; left: 10px; top: 10px; padding: 5px 10px; border-radius: 5px; font: 700 11px/1.2 var(--display); letter-spacing: .12em; text-transform: uppercase; background: rgba(8,12,16,.78); color: #fff; display: none; }
+.stage-chip.show { display: block; }
+.stage-chip.bad { background: var(--danger); }
+.stamp { position: absolute; right: 12px; top: 12px; padding: 7px 12px; border: 2px solid var(--zone); color: #fff; background: rgba(8,12,16,.78); font: 700 15px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; border-radius: 4px; opacity: 0; transform: translateY(-8px) rotate(-2deg); pointer-events: none; }
+.stamp.show { animation: stamp 2.4s ease-out both; }
+@keyframes stamp { 0% { opacity: 0; transform: translateY(-14px) rotate(-2deg) scale(1.15); } 12% { opacity: 1; transform: translateY(0) rotate(-2deg) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+.zonebar { padding: 12px 18px 16px; display: grid; gap: 10px; }
+.zonebar .help { color: var(--ink-2); font-size: 13px; min-height: 20px; }
+.zonebar .help.bad { color: var(--danger); font-weight: 600; }
+.readout { display: flex; flex-wrap: wrap; gap: 4px 18px; color: var(--ink-2); font-size: 13px; }
+.readout b { color: var(--ink); }
+.scale { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
+.scale input[type=range] { width: 140px; accent-color: var(--zone); }
+select.btn { padding-right: 8px; }
+details.numbers { border-top: 1px solid var(--rule); padding-top: 10px; }
+details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.vtable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.vtable th { text-align: left; font: 600 11px var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 4px 6px; }
+.vtable td { padding: 3px 6px; }
+.vtable input { width: 84px; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+.vtable input:invalid { border-color: var(--danger); }
+
+/* ---------- video playback (video files only) ---------- */
+.playback { padding: 12px 18px 0; display: grid; gap: 6px; }
+.playback[hidden] { display: none; }
+.playback-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.progress { flex: 1 1 200px; min-width: 120px; height: 8px; border-radius: 4px; background: var(--rule); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: var(--zone); transition: width .5s linear; }
+.playback .clock { font: 600 13px var(--mono); color: var(--ink); white-space: nowrap; }
+.playback .hint { color: var(--ink-2); font-size: 13px; margin: 0; }
+.playback label { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13px; }
+
+/* ---------- numbers ---------- */
+.plate { position: relative; padding: 22px 20px 18px; overflow: hidden; }
+.plate::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 8px;
+  background: repeating-linear-gradient(-45deg, var(--zone) 0 10px, var(--rule-strong) 10px 20px); }
+.plate .big { font: 700 clamp(64px, 9vw, 104px)/.95 var(--display); font-variation-settings: "wdth" 85; letter-spacing: .01em; margin-top: 6px; }
+.plate .big.bump { animation: bump .5s ease-out; }
+@keyframes bump { 30% { transform: scale(1.08); color: var(--zone); } }
+.plate .sub { color: var(--ink-2); margin-top: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); border-top: 1px solid var(--rule); }
+.tile { padding: 12px 18px 14px; border-right: 1px solid var(--rule); border-bottom: 1px solid var(--rule); min-width: 0; }
+.tile:last-child { border-right: 0; }
+.tile .val { font: 600 28px/1.1 var(--mono); margin-top: 6px; }
+.tile.hot { background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--zone) 20%, var(--surface)) 0 8px, var(--surface) 8px 16px); }
+.tile.hot .val { color: var(--zone); }
+.tile .hint { font-size: 12px; color: var(--muted); }
+
+/* ---------- charts ---------- */
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart .grid-line { stroke: var(--rule); stroke-width: 1; }
+.chart .axis-text { fill: var(--muted); font: 11px var(--mono); }
+.chart .direct { font: 600 11px var(--body); }
+.tip { position: absolute; pointer-events: none; z-index: 3; padding: 7px 10px; border-radius: 6px; font-size: 12px; line-height: 1.35; background: var(--rule-strong); color: var(--surface); box-shadow: var(--shadow); white-space: nowrap; opacity: 0; transition: opacity .1s; }
+.tip.show { opacity: 1; }
+.tip b { font-family: var(--mono); }
+.linklike { background: none; border: 0; padding: 0; color: var(--ink-2); font-size: 12px; text-decoration: underline; cursor: pointer; }
+.data-table { width: 100%; border-collapse: collapse; font: 12px var(--mono); margin-top: 8px; display: none; }
+.data-table.show { display: table; }
+.data-table th, .data-table td { text-align: right; padding: 3px 8px; border-bottom: 1px solid var(--rule); }
+.data-table th:first-child, .data-table td:first-child { text-align: left; }
+
+/* ---------- log + report ---------- */
+.feed { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow: auto; }
+.feed li { display: grid; grid-template-columns: 54px 86px 1fr auto; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--rule); }
+.feed li.new { animation: rowin .9s ease-out; }
+@keyframes rowin { 0% { background: color-mix(in srgb, var(--zone) 28%, transparent); transform: translateX(-10px); opacity: 0; } 30% { opacity: 1; transform: none; } 100% { background: transparent; } }
+.feed .n { font: 700 13px var(--mono); color: var(--muted); }
+.feed .t { font: 13px var(--mono); }
+.feed .who { font-weight: 600; }
+.tag { font: 700 10px var(--display); letter-spacing: .14em; padding: 3px 8px; border-radius: 4px; background: var(--zone); color: #fff; }
+.empty { color: var(--ink-2); padding: 18px 0 6px; max-width: 52ch; }
+.report-line { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.report-line:last-of-type { border-bottom: 0; }
+.report-line span:first-child { color: var(--ink-2); }
+.report-line span:last-child { font: 600 14px var(--mono); }
+.fine { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+/* ---------- toasts, footer ---------- */
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: grid; gap: 8px; z-index: 20; width: min(92vw, 460px); pointer-events: none; }
+.toast { padding: 10px 14px; border-radius: 8px; background: var(--rule-strong); color: var(--surface); box-shadow: var(--shadow); font-weight: 600; animation: toast .25s ease-out; }
+.toast.bad { background: var(--danger); color: #fff; }
+.toast.out { opacity: 0; transition: opacity .4s; }
+@keyframes toast { from { opacity: 0; transform: translateY(8px); } }
+.foot { margin-top: 24px; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.foot kbd { font: 600 11px var(--mono); padding: 1px 6px; border: 1px solid var(--rule); border-radius: 4px; background: var(--surface); color: var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16v12H4z" stroke="#FF6B1A" stroke-width="2.4" stroke-dasharray="4 2.6"/><circle cx="12" cy="12" r="2.2" fill="#fff"/></svg></div>
+    <div><h1>VisionGuard</h1><p>Restricted-zone monitor</p></div>
+  </div>
+  <span id="status" class="pill" data-status="starting" role="status"><i></i><span id="statusText">Starting</span></span>
+  <div class="meta">
+    <span>Source <b id="source">-</b></span>
+    <span>Speed <b class="num" id="fps">-</b></span>
+    <span>Session <b class="num" id="uptime">0:00</b></span>
+  </div>
+  <button class="icon-btn" id="theme" type="button" aria-label="Switch between light and dark theme" title="Light / dark">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+  </button>
+</header>
+
+<div id="banner" class="banner" role="alert">Lost the connection to VisionGuard. Check that <b>portal.py</b> is still running in your terminal; this page reconnects by itself.</div>
+
+<div class="grid">
+  <div class="col">
+
+    <section class="card" aria-labelledby="liveTitle">
+      <div class="card-head">
+        <h2 id="liveTitle">Live view</h2>
+        <div class="row">
+          <button class="btn" id="pauseBtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Pause</span> <kbd>Space</kbd></button>
+          <button class="btn" id="resetBtn" type="button">Reset counters</button>
+          <button class="btn" id="restartBtn" type="button">Restart source</button>
+        </div>
+      </div>
+      <div class="stage-wrap">
+        <div class="stage" id="stage">
+          <img id="stream" alt="Live camera view with detected people">
+          <canvas id="overlay" role="img" aria-label="Restricted zone drawn over the live view"></canvas>
+          <div class="stage-chip" id="chip"></div>
+          <div class="stamp" id="stamp"></div>
+          <div class="veil show" id="veil"><div><div class="spinner" id="spinner"></div><h3 id="veilTitle">Starting</h3><p id="veilText">Starting the camera and loading the model.</p><button class="btn" id="veilBtn" type="button" hidden>Retry</button></div></div>
+        </div>
+      </div>
+      <div class="playback" id="playback" hidden>
+        <div class="playback-row">
+          <div class="progress" id="progress" role="progressbar" aria-label="How far through the video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="progressBar"></i></div>
+          <span class="clock" id="videoClock">0:00 / 0:00</span>
+          <label>Playback speed
+            <select class="btn" id="speed" aria-label="Playback speed of the video">
+              <option value="0">Every frame (slowest)</option><option value="0.5">0.5×</option><option value="1">1× normal speed</option>
+              <option value="2">2×</option><option value="4">4×</option><option value="8">8×</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint" id="speedHint"></p>
+      </div>
+      <div class="zonebar">
+        <div class="row" role="group" aria-label="Zone tools">
+          <button class="btn" id="editBtn" type="button" aria-pressed="false">Edit shape <kbd>E</kbd></button>
+          <button class="btn" id="drawBtn" type="button" aria-pressed="false">Draw new <kbd>D</kbd></button>
+          <select class="btn" id="preset" aria-label="Replace the zone with a ready-made shape">
+            <option value="">Shapes…</option><option value="rectangle">Rectangle</option><option value="trapezoid">Trapezoid</option><option value="triangle">Triangle</option>
+            <option value="pentagon">Pentagon</option><option value="lshape">L-shape</option><option value="star">Star</option>
+          </select>
+          <button class="btn" id="undoBtn" type="button" aria-label="Undo">Undo</button>
+          <button class="btn" id="redoBtn" type="button" aria-label="Redo">Redo</button>
+          <button class="btn" id="defaultBtn" type="button">Reset to default</button>
+          <label class="scale">Size <input id="scale" type="range" min="40" max="200" value="100" aria-label="Make the zone smaller or larger"><span class="num" id="scaleVal">100%</span></label>
+        </div>
+        <p class="help" id="help" aria-live="polite"></p>
+        <div class="readout" id="readout"></div>
+        <details class="numbers" id="numbers">
+          <summary>Edit points by numbers</summary>
+          <table class="vtable"><thead><tr><th>Point</th><th>Across %</th><th>Down %</th><th><span class="sr-only">Remove</span></th></tr></thead><tbody id="vbody"></tbody></table>
+          <div class="row" style="margin-top:10px"><button class="btn" id="addPoint" type="button">Add a point</button></div>
+        </details>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="logTitle">
+      <div class="card-head"><h2 id="logTitle">Entry log</h2><span class="eyebrow" id="logCount">0 this session</span></div>
+      <div class="card-body">
+        <ul class="feed" id="feed" aria-live="polite"></ul>
+        <p class="empty" id="feedEmpty">No entries yet. An entry is counted when a person's feet move from outside the shaded zone to inside it. Draw the zone where people will walk, then step into it.</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card" aria-label="Live numbers">
+      <div class="plate">
+        <div class="eyebrow">Entries this session</div>
+        <div class="big num" id="entries" style="font-family:var(--display)">0</div>
+        <div class="sub" id="entriesSub">Waiting for the first entry.</div>
+      </div>
+      <div class="tiles">
+        <div class="tile" id="tileInside"><div class="eyebrow">Inside now</div><div class="val" id="inside">0</div></div>
+        <div class="tile"><div class="eyebrow">In view</div><div class="val" id="inView">0</div></div>
+        <div class="tile"><div class="eyebrow">Most at once</div><div class="val" id="peak">0</div></div>
+        <div class="tile"><div class="eyebrow">Tracking IDs</div><div class="val" id="uniqueIds">0</div><div class="hint">not the same as people</div></div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="actTitle">
+      <div class="card-head"><h2 id="actTitle">Activity, last 3 minutes</h2><button class="linklike" id="tableToggle" type="button" aria-expanded="false">Show as table</button></div>
+      <div class="card-body">
+        <div class="legend"><span><i style="background:var(--series-view)"></i>People in view</span><span><i style="background:var(--zone)"></i>People inside the zone</span></div>
+        <div class="chart" id="activity"></div>
+        <table class="data-table" id="activityTable"><thead><tr><th>Seconds ago</th><th>In view</th><th>Inside</th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="minTitle">
+      <div class="card-head"><h2 id="minTitle">Entries per minute</h2><span class="eyebrow">last 10 minutes</span></div>
+      <div class="card-body"><div class="chart" id="perMinute"></div></div>
+    </section>
+
+    <section class="card" aria-labelledby="repTitle">
+      <div class="card-head"><h2 id="repTitle">Session report</h2></div>
+      <div class="card-body">
+        <div id="reportLines"></div>
+        <div class="row" style="margin-top:14px">
+          <a class="btn primary" href="/report" target="_blank" rel="noopener">Open full report</a>
+          <a class="btn" href="/api/events.csv" download="visionguard_session_events.csv">Download CSV</a>
+        </div>
+        <p class="fine">Every entry is also saved to <span class="num">outputs/events.csv</span>, even if you reset the counters.</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<footer class="foot">
+  <span><kbd>E</kbd> edit shape</span><span><kbd>D</kbd> draw new</span><span><kbd>Z</kbd> undo</span><span><kbd>Y</kbd> redo</span>
+  <span><kbd>Space</kbd> pause</span><span><kbd>Esc</kbd> cancel</span><span><kbd>Del</kbd> remove selected point</span>
+  <span>Tracking IDs are temporary. Counts are not guaranteed to be exact.</span>
+</footer>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+(() => {
+"use strict";
+const $ = (id) => document.getElementById(id);
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const HIT = 13;                       // pointer hit radius for handles, in CSS pixels
+const MIN_POINTS = 3;
+
+/* ---------- state ----------
+   All page state lives in S.
+     state     latest snapshot from /api/state (counts, zone, history, events, video info)
+     zone      the zone as saved on the server: [[x, y], ...] as 0-1 fractions of the picture
+     draft     the shape being edited or drawn (not saved until the user lets go); null in view mode
+     mode      "view" | "edit" | "draw"
+     undo/redo previous zone shapes (the last 40 are kept)
+     hover/drag/selected/pointer   what the mouse is over, dragging, or has selected while editing
+     invalid   true while the draft shape crosses itself (it is never sent to the server in that state)
+     flash     time of the last entry, used for the zone's pulse animation
+     shownEvents  keys of entries already added to the feed, so each is shown once */
+const S = {
+  state: null, zone: [], draft: null, mode: "view", selected: -1, hover: null, drag: null, invalid: false,
+  undo: [], redo: [], aspect: 4 / 3, lastEntryN: null, flash: 0, pointer: null,
+  failures: 0, theme: {}, frameKnown: false, resetArmed: 0, shownEvents: new Set(), tableOpen: false,
+  scaleBase: null,
+};
+// The shape to draw and hit-test: the unsaved draft while editing, otherwise the saved zone.
+const currentZone = () => S.draft || S.zone;
+
+/* ---------- small helpers ---------- */
+function toast(message, bad = false) {
+  const box = $("toasts");
+  [...box.children].forEach((old) => { if (old.textContent === message) old.remove(); });   // same message: replace, do not stack
+  while (box.children.length >= 3) box.firstChild.remove();
+  const el = document.createElement("div");
+  el.className = "toast" + (bad ? " bad" : ""); el.textContent = message;
+  box.appendChild(el);
+  setTimeout(() => el.classList.add("out"), 3200);
+  setTimeout(() => el.remove(), 3700);
+}
+// Seconds -> "m:ss", or "h:mm:ss" from one hour up.
+function fmtDuration(s) {
+  s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${m}:${String(r).padStart(2, "0")}`;
+}
+// Only touch the DOM when the text really changed (polling runs every 0.6 s; this avoids needless repaints).
+function setText(el, text) { if (el.textContent !== String(text)) el.textContent = text; }
+// Remembers the number last shown in each element, so countTo can animate from it.
+const shown = new WeakMap();
+function countTo(el, value) {                      // animated number, instant with reduced motion
+  const from = shown.get(el) ?? 0; shown.set(el, value);
+  if (reduceMotion || from === value) { el.textContent = value; return; }
+  const start = performance.now(), dur = 420;
+  const step = (now) => { const t = Math.min(1, (now - start) / dur); el.textContent = Math.round(from + (value - from) * (1 - Math.pow(1 - t, 3))); if (t < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+// Talk to the portal's server. No body = GET; with a body = POST of JSON. Rejects with the server's
+// error message (so it can be shown in a toast) and gives up after 6 s so a stuck request cannot hang the page.
+async function api(path, body) {
+  const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const response = await fetch(path, { ...options, signal: controller.signal, cache: "no-store" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+    return data;
+  } finally { clearTimeout(timer); }
+}
+
+/* ---------- geometry (same rules as the server) ----------
+   These mirror validate_zone() in main.py, so the page can show a crossing shape in red at once instead of
+   waiting for the server to refuse it. The server still checks again; this is for feedback only. */
+const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+const within = (p, q, r) => Math.min(p[0], q[0]) <= r[0] && r[0] <= Math.max(p[0], q[0]) && Math.min(p[1], q[1]) <= r[1] && r[1] <= Math.max(p[1], q[1]);
+function segmentsIntersect(p1, p2, p3, p4) {
+  const d1 = cross(p3, p4, p1), d2 = cross(p3, p4, p2), d3 = cross(p1, p2, p3), d4 = cross(p1, p2, p4);
+  if (d1 * d2 < 0 && d3 * d4 < 0) return true;
+  return (d1 === 0 && within(p3, p4, p1)) || (d2 === 0 && within(p3, p4, p2)) || (d3 === 0 && within(p1, p2, p3)) || (d4 === 0 && within(p1, p2, p4));
+}
+function crossingEdges(points) {                  // indices of edges that cross or touch a non-neighbour edge
+  const n = points.length, bad = new Set();
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+    if (j === i + 1 || (i === 0 && j === n - 1)) continue;
+    if (segmentsIntersect(points[i], points[(i + 1) % n], points[j], points[(j + 1) % n])) { bad.add(i); bad.add(j); }
+  }
+  return bad;
+}
+// Polygon area by the shoelace formula (0-1 on each axis, so the result is the fraction of the picture).
+const area = (pts) => Math.abs(pts.reduce((sum, p, i) => { const q = pts[(i + 1) % pts.length]; return sum + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+// Is point (x, y) inside polygon pts? Ray casting: shoot a ray to the right and flip `hit` each time it
+// crosses an edge; an odd number of crossings means inside. Used for "drag the whole shape" hit-testing.
+function inside(pts, x, y) {
+  let hit = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) hit = !hit;
+  }
+  return hit;
+}
+// Keep a coordinate within the picture (0-1), and round to 4 decimals like save_zone() does on the server.
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const round4 = (v) => Math.round(v * 10000) / 10000;
+
+/* ---------- ready-made shapes (centred, sized relative to the picture) ---------- */
+// `ring` places n points on a circle of radius r; dividing x by the aspect ratio keeps the shape round on
+// a wide picture instead of stretching it, because zone points are fractions of width and height.
+function preset(name) {
+  const a = S.aspect, ring = (n, r, rot = -Math.PI / 2) => Array.from({ length: n }, (_, i) => [0.5 + (r * Math.cos(rot + (2 * Math.PI * i) / n)) / a, 0.5 + r * Math.sin(rot + (2 * Math.PI * i) / n)]);
+  switch (name) {
+    case "rectangle": return [[0.28, 0.3], [0.72, 0.3], [0.72, 0.72], [0.28, 0.72]];
+    case "trapezoid": return [[0.34, 0.3], [0.66, 0.3], [0.78, 0.74], [0.22, 0.74]];
+    case "triangle": return ring(3, 0.32);
+    case "pentagon": return ring(5, 0.33);
+    case "lshape": return [[0.25, 0.22], [0.5, 0.22], [0.5, 0.52], [0.78, 0.52], [0.78, 0.78], [0.25, 0.78]];
+    case "star": return Array.from({ length: 10 }, (_, i) => { const r = i % 2 ? 0.14 : 0.34, t = -Math.PI / 2 + (Math.PI * i) / 5; return [0.5 + (r * Math.cos(t)) / a, 0.5 + r * Math.sin(t)]; });
+  }
+  return null;
+}
+
+/* ---------- theme ---------- */
+// Copy the current CSS colours into S.theme, because canvas and SVG drawing cannot use CSS variables directly.
+function readTheme() {
+  const css = getComputedStyle(document.documentElement), get = (n) => css.getPropertyValue(n).trim();
+  S.theme = { zone: get("--zone"), danger: get("--danger"), ink: get("--ink"), series: get("--series-view"), muted: get("--muted"), rule: get("--rule"), surface: get("--surface") };
+  S.hatch = null; renderCharts(true); needsDraw = true;
+}
+function applyTheme(name) {
+  if (name) document.documentElement.setAttribute("data-theme", name); else document.documentElement.removeAttribute("data-theme");
+  readTheme();
+}
+$("theme").addEventListener("click", () => {
+  const current = document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = current === "dark" ? "light" : "dark";
+  applyTheme(next); try { localStorage.setItem("vg-theme", next); } catch (e) { /* storage may be unavailable */ }
+});
+try { const saved = localStorage.getItem("vg-theme"); if (saved) document.documentElement.setAttribute("data-theme", saved); } catch (e) { /* ignore */ }
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => readTheme());
+
+/* ---------- overlay canvas ---------- */
+const stage = $("stage"), canvas = $("overlay"), ctx = canvas.getContext("2d");
+let W = 1, H = 1, needsDraw = true;
+// Match the overlay canvas to the video's displayed size, at the screen's pixel density (devicePixelRatio)
+// so lines stay sharp on high-DPI displays. Drawing code then works in CSS pixels.
+function resize() {
+  const rect = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  W = rect.width; H = rect.height;
+  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); needsDraw = true;
+}
+new ResizeObserver(resize).observe(stage);
+// Zone fractions -> canvas pixels.
+const px = (p) => [p[0] * W, p[1] * H];
+// The diagonal "caution stripe" fill, built once per theme as a small repeating tile.
+function hatchPattern() {
+  if (S.hatch) return S.hatch;
+  const tile = document.createElement("canvas"); tile.width = tile.height = 14;
+  const t = tile.getContext("2d"); t.strokeStyle = S.theme.zone; t.lineWidth = 3; t.globalAlpha = .55;
+  t.beginPath(); t.moveTo(-2, 16); t.lineTo(16, -2); t.moveTo(-2, 2); t.lineTo(2, -2); t.moveTo(12, 16); t.lineTo(16, 12); t.stroke();
+  return (S.hatch = ctx.createPattern(tile, "repeat"));
+}
+// Trace the polygon as the current canvas path (the caller then fills or strokes it).
+function pathOf(points) { ctx.beginPath(); points.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath(); }
+// A small filled text tag, kept fully inside the canvas.
+function label(text, x, y, background, color = "#fff") {
+  ctx.font = '700 12px Bahnschrift, "Arial Narrow", sans-serif'; ctx.textBaseline = "middle";
+  const w = ctx.measureText(text).width + 14;
+  x = Math.min(Math.max(2, x), W - w - 2); y = Math.min(Math.max(14, y), H - 14);
+  ctx.fillStyle = background; ctx.fillRect(x, y - 11, w, 22); ctx.fillStyle = color; ctx.fillText(text, x + 7, y + 1);
+}
+let dashOffset = 0;  // moves the dashed outline along while the zone is occupied (the "marching ants" effect)
+// Paint the whole overlay: zone fill, outline, red edges where the shape crosses itself, and (when editing)
+// the dimmed surroundings, "+" midpoint handles and square corner handles.
+function draw(now) {
+  ctx.clearRect(0, 0, W, H);
+  const pts = currentZone(); if (!pts || !pts.length) return;
+  const editing = S.mode !== "view", occupied = (S.state?.counts.inside || 0) > 0, bad = crossingEdges(pts);
+  const flashT = S.flash ? Math.min(1, (now - S.flash) / 1100) : 1;
+
+  if (editing) {                                   // dim everything outside the zone so the shape stands out
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, H);
+    pts.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
+    ctx.fillStyle = "rgba(6,10,14,.38)"; ctx.fill("evenodd"); ctx.restore();
+  }
+  if (S.mode !== "draw" || pts.length >= 3) {
+    pathOf(pts);
+    ctx.fillStyle = S.theme.zone; ctx.globalAlpha = occupied ? .24 : .12; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.fillStyle = hatchPattern(); ctx.fill();
+    if (flashT < 1) { ctx.save(); ctx.lineWidth = 3 + 22 * flashT; ctx.globalAlpha = (1 - flashT) * .7; ctx.strokeStyle = S.theme.zone; ctx.lineJoin = "round"; pathOf(pts); ctx.stroke(); ctx.restore(); }
+    ctx.lineJoin = "round"; ctx.lineWidth = 3; ctx.strokeStyle = S.theme.zone; ctx.setLineDash([]); pathOf(pts); ctx.stroke();
+    ctx.strokeStyle = "rgba(10,16,22,.92)"; ctx.setLineDash([9, 9]); ctx.lineDashOffset = -dashOffset; pathOf(pts); ctx.stroke(); ctx.setLineDash([]);
+    if (bad.size) { ctx.strokeStyle = S.theme.danger; ctx.lineWidth = 4; pts.forEach((p, i) => { if (!bad.has(i)) return; const [x1, y1] = px(p), [x2, y2] = px(pts[(i + 1) % pts.length]); ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }); }
+  }
+  if (S.mode === "draw") {                         // the line being drawn, plus a rubber band to the pointer
+    ctx.lineWidth = 3; ctx.strokeStyle = S.theme.zone; ctx.beginPath(); pts.forEach((p, i) => { const [x, y] = px(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    if (S.pointer && pts.length) { const [x, y] = px(S.pointer.fraction); ctx.setLineDash([6, 6]); ctx.lineTo(x, y); }
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+  const [lx, ly] = px([Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1]))]);
+  if (pts.length >= 3 && S.mode !== "draw") label(occupied ? `RESTRICTED ZONE  ${S.state.counts.inside} INSIDE` : "RESTRICTED ZONE", lx, ly - 15, occupied ? S.theme.zone : "rgba(8,12,16,.82)");
+
+  if (editing) {
+    pts.forEach((p, i) => {                        // midpoint "+" handles let you add corners anywhere
+      if (S.mode !== "edit") return; const q = pts[(i + 1) % pts.length], [x, y] = px([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2]), hot = S.hover?.type === "mid" && S.hover.index === i;
+      ctx.beginPath(); ctx.arc(x, y, hot ? 8 : 6, 0, 7); ctx.fillStyle = "rgba(255,255,255,.92)"; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#14202B"; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.lineTo(x + 3, y); ctx.moveTo(x, y - 3); ctx.lineTo(x, y + 3); ctx.stroke();
+    });
+    pts.forEach((p, i) => {                        // square corner handles, like survey marks
+      const [x, y] = px(p), sel = i === S.selected, hot = S.hover?.type === "vertex" && S.hover.index === i, s = hot || sel ? 8 : 6.5;
+      ctx.fillStyle = sel ? S.theme.zone : "#fff"; ctx.strokeStyle = bad.size && (bad.has(i) || bad.has((i - 1 + pts.length) % pts.length)) ? S.theme.danger : "#14202B"; ctx.lineWidth = 2.5;
+      ctx.fillRect(x - s, y - s, s * 2, s * 2); ctx.strokeRect(x - s, y - s, s * 2, s * 2);
+      if (S.mode === "draw" && i === 0 && pts.length >= 3) { ctx.beginPath(); ctx.arc(x, y, 15, 0, 7); ctx.strokeStyle = S.theme.zone; ctx.lineWidth = 2; ctx.stroke(); }
+    });
+    if (S.drag && S.drag.type === "vertex") { const [x, y] = px(pts[S.drag.index]); label(`${Math.round(pts[S.drag.index][0] * 100)}% across, ${Math.round(pts[S.drag.index][1] * 100)}% down`, x + 14, y - 22, "rgba(8,12,16,.88)"); }
+  }
+}
+let animating = false;
+// Runs every animation frame but only repaints when something changed (needsDraw) or an animation is active.
+function frameLoop(now) {
+  const occupied = (S.state?.counts.inside || 0) > 0;
+  animating = !reduceMotion && (occupied || (S.flash && now - S.flash < 1100));
+  if (!reduceMotion && occupied) dashOffset = (now / 40) % 18;
+  if (needsDraw || animating) { draw(now); needsDraw = false; }
+  requestAnimationFrame(frameLoop);
+}
+
+/* ---------- editing ---------- */
+// Pointer position -> 0-1 fractions of the picture, clamped to its edges.
+const fractionOf = (e) => { const r = canvas.getBoundingClientRect(); return [clamp01((e.clientX - r.left) / r.width), clamp01((e.clientY - r.top) / r.height)]; };
+// What is under the pointer? A corner (checked first, from the top one down), a "+" midpoint handle,
+// or the inside of the shape (edit mode only). Returns null when over nothing.
+function hitTest(e) {
+  const r = canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, pts = currentZone();
+  for (let i = pts.length - 1; i >= 0; i--) { const [vx, vy] = px(pts[i]); if (Math.hypot(vx - x, vy - y) <= HIT) return { type: "vertex", index: i }; }
+  if (S.mode === "edit") for (let i = 0; i < pts.length; i++) { const q = pts[(i + 1) % pts.length], [mx, my] = px([(pts[i][0] + q[0]) / 2, (pts[i][1] + q[1]) / 2]); if (Math.hypot(mx - x, my - y) <= HIT - 2) return { type: "mid", index: i }; }
+  if (S.mode === "edit" && pts.length >= 3 && inside(pts, x / W, y / H)) return { type: "shape" };
+  return null;
+}
+// Switch between view, edit and draw. Leaving edit/draw discards the unsaved draft; entering edit copies
+// the saved zone into a draft; entering draw starts an empty one.
+function setMode(mode) {
+  if (S.mode === mode) return;
+  if (S.mode !== "view" && mode === "view") S.draft = null;
+  S.mode = mode; S.selected = -1; S.drag = null; S.hover = null; S.invalid = false;
+  if (mode === "draw") S.draft = [];
+  if (mode === "edit") S.draft = S.zone.map((p) => p.slice());
+  stage.classList.toggle("editing", mode !== "view");
+  $("editBtn").setAttribute("aria-pressed", mode === "edit"); $("drawBtn").setAttribute("aria-pressed", mode === "draw");
+  canvas.style.cursor = mode === "draw" ? "crosshair" : "default";
+  updateEditorText(); needsDraw = true;
+}
+// Refresh the help line, the mode chip over the video, and the readout and corner table for the current state.
+function updateEditorText() {
+  const help = $("help"), chip = $("chip"); help.classList.remove("bad");
+  const pts = currentZone();
+  if (S.mode === "view") { help.textContent = "Press Edit shape to move the corners, or Draw new to click out any shape you like."; chip.classList.remove("show"); }
+  else if (S.mode === "edit") { help.textContent = "Drag a square corner to move it. Drag a + to add a corner. Drag inside the shape to move it all. Double-click a corner to remove it."; chip.textContent = "Editing zone"; chip.className = "stage-chip show"; }
+  else { help.textContent = `Click to place corner ${pts.length + 1}. Click the first corner, or press Enter, to finish (at least 3). Backspace removes the last corner. Esc cancels.`; chip.textContent = "Drawing zone"; chip.className = "stage-chip show"; }
+  if (S.invalid) { help.textContent = "This shape crosses itself. Drag a corner until the red edges separate (or press Esc to go back)."; help.classList.add("bad"); chip.textContent = "Shape crosses itself"; chip.className = "stage-chip show bad"; }
+  renderReadout(); renderVertexTable();
+}
+function renderReadout() {
+  const pts = currentZone(), box = pts.length ? [Math.min(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[1]))] : [0, 0, 0, 0];
+  const dims = S.state?.frame ? ` (${Math.round((box[1] - box[0]) * S.state.frame.w)} × ${Math.round((box[3] - box[2]) * S.state.frame.h)} px)` : "";
+  $("readout").innerHTML = `<span><b>${pts.length}</b> corners</span><span><b>${(area(pts) * 100).toFixed(1)}%</b> of the picture</span><span>Spans <b>${Math.round((box[1] - box[0]) * 100)}%</b> across, <b>${Math.round((box[3] - box[2]) * 100)}%</b> down${dims}</span><span>${S.mode !== "view" ? "Not saved until you let go" : S.state?.zone.isDefault ? "Default shape" : "Custom shape, saved"}</span>`;
+}
+function renderVertexTable() {
+  const body = $("vbody"); if (body.contains(document.activeElement)) return;
+  const pts = currentZone(); body.innerHTML = "";
+  pts.forEach((p, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="num">${i + 1}</td><td><input type="number" min="0" max="100" step="0.1" value="${(p[0] * 100).toFixed(1)}" data-i="${i}" data-axis="0" aria-label="Point ${i + 1}, percent across"></td><td><input type="number" min="0" max="100" step="0.1" value="${(p[1] * 100).toFixed(1)}" data-i="${i}" data-axis="1" aria-label="Point ${i + 1}, percent down"></td><td><button class="btn" type="button" data-remove="${i}" aria-label="Remove point ${i + 1}">Remove</button></td>`;
+    body.appendChild(tr);
+  });
+}
+// Save a new zone shape on the server. On success it becomes the saved zone (and is pushed onto the undo
+// stack unless record is false, as undo/redo themselves do); on failure the draft snaps back to the saved
+// zone and the server's message is shown. Returns true/false.
+async function commit(points, { record = true, quiet = false } = {}) {
+  const next = points.map((p) => [round4(clamp01(p[0])), round4(clamp01(p[1]))]);
+  try {
+    const result = await api("/api/zone", { points: next });
+    if (record) { S.undo.push(S.zone.map((p) => p.slice())); if (S.undo.length > 40) S.undo.shift(); S.redo = []; }
+    S.zone = result.zone.points; if (S.state) S.state.zone = result.zone;
+    if (S.mode === "edit") S.draft = S.zone.map((p) => p.slice());
+    S.invalid = false; if (!quiet) toast("Zone saved. It applies to the next frame."); syncButtons(); updateEditorText(); needsDraw = true; return true;
+  } catch (error) {
+    toast(error.message, true);
+    if (S.mode === "edit") S.draft = S.zone.map((p) => p.slice());
+    S.invalid = false; updateEditorText(); needsDraw = true; return false;
+  }
+}
+// Close the shape being drawn (clicking the first corner, or Enter). It needs at least 3 corners and must
+// not cross itself; then it is saved like any other edit.
+function finishDrawing() {
+  const pts = S.draft;
+  if (pts.length < MIN_POINTS) { toast("A zone needs at least 3 corners.", true); return; }
+  if (crossingEdges(pts).size) { S.invalid = true; updateEditorText(); toast("The shape crosses itself. Move the last corner and try again.", true); needsDraw = true; return; }
+  const finished = pts.map((p) => p.slice()); S.mode = "view"; S.draft = null; setMode("edit");
+  S.draft = finished.map((p) => p.slice()); needsDraw = true;       // keep showing the new shape while it is saved
+  commit(finished);
+}
+// Pointer handling: pointermove updates hover and live-drags a corner or the whole shape (the shape is only
+// sent to the server on pointerup, via endDrag); pointerdown starts a drag or places a corner while drawing.
+canvas.addEventListener("pointermove", (e) => {
+  const fraction = fractionOf(e); S.pointer = { fraction };
+  if (S.drag) {
+    const pts = S.draft;
+    if (S.drag.type === "vertex") pts[S.drag.index] = fraction;
+    else if (S.drag.type === "shape") {
+      let dx = fraction[0] - S.drag.start[0], dy = fraction[1] - S.drag.start[1];
+      const xs = S.drag.base.map((p) => p[0]), ys = S.drag.base.map((p) => p[1]);
+      dx = Math.min(Math.max(dx, -Math.min(...xs)), 1 - Math.max(...xs)); dy = Math.min(Math.max(dy, -Math.min(...ys)), 1 - Math.max(...ys));
+      S.drag.base.forEach((p, i) => { pts[i] = [p[0] + dx, p[1] + dy]; });
+    }
+    S.drag.moved = true; S.invalid = crossingEdges(pts).size > 0; updateEditorText(); needsDraw = true; return;
+  }
+  if (S.mode === "edit") {
+    const hit = hitTest(e); S.hover = hit;
+    canvas.style.cursor = !hit ? "default" : hit.type === "shape" ? "move" : hit.type === "mid" ? "copy" : "grab";
+  } else if (S.mode === "draw") S.hover = hitTest(e);
+  needsDraw = true;
+});
+canvas.addEventListener("pointerdown", (e) => {
+  if (S.mode === "view" || e.button > 0) return;
+  e.preventDefault(); const fraction = fractionOf(e);
+  if (S.mode === "draw") {
+    const pts = S.draft, first = pts[0];
+    if (pts.length >= MIN_POINTS && first) { const [fx, fy] = px(first), r = canvas.getBoundingClientRect(); if (Math.hypot(fx - (e.clientX - r.left), fy - (e.clientY - r.top)) <= HIT + 4) { finishDrawing(); return; } }
+    const candidate = [...pts, fraction];
+    if (pts.length >= 2) { const last = pts[pts.length - 1]; for (let i = 0; i < pts.length - 2; i++) if (segmentsIntersect(pts[i], pts[i + 1], last, fraction)) { toast("That corner would make the shape cross itself.", true); return; } }
+    S.draft = candidate; S.selected = candidate.length - 1; updateEditorText(); needsDraw = true; return;
+  }
+  const hit = hitTest(e); S.selected = -1;
+  if (!hit) { needsDraw = true; return; }
+  canvas.setPointerCapture(e.pointerId);
+  if (hit.type === "vertex") { S.selected = hit.index; S.drag = { type: "vertex", index: hit.index, moved: false }; canvas.style.cursor = "grabbing"; }
+  else if (hit.type === "mid") { const pts = S.draft, q = pts[(hit.index + 1) % pts.length]; pts.splice(hit.index + 1, 0, [(pts[hit.index][0] + q[0]) / 2, (pts[hit.index][1] + q[1]) / 2]); S.selected = hit.index + 1; S.drag = { type: "vertex", index: hit.index + 1, moved: true }; }
+  else S.drag = { type: "shape", start: fraction, base: S.draft.map((p) => p.slice()), moved: false };
+  updateEditorText(); needsDraw = true;
+});
+// End of a drag: save the new shape unless it crosses itself, in which case it stays in the draft, drawn in red.
+function endDrag(e) {
+  if (!S.drag) return; const drag = S.drag; S.drag = null;
+  try { canvas.releasePointerCapture(e.pointerId); } catch (err) { /* not captured */ }
+  canvas.style.cursor = "default";
+  if (!drag.moved) { needsDraw = true; return; }
+  if (crossingEdges(S.draft).size) { S.invalid = true; updateEditorText(); toast("The shape crosses itself, so it was not applied.", true); needsDraw = true; return; }
+  commit(S.draft);
+}
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
+canvas.addEventListener("pointerleave", () => { S.pointer = null; if (!S.drag) { S.hover = null; needsDraw = true; } });
+// Delete one corner (never below 3, and never if that would make the shape cross itself).
+function removeVertex(index) {
+  if (S.mode !== "edit") return;
+  if (S.draft.length <= MIN_POINTS) { toast("A zone needs at least 3 corners.", true); return; }
+  const next = S.draft.filter((_, i) => i !== index); S.draft = next; S.selected = -1;
+  if (crossingEdges(next).size) { S.invalid = true; updateEditorText(); needsDraw = true; toast("Removing that corner makes the shape cross itself.", true); return; }
+  commit(next);
+}
+canvas.addEventListener("dblclick", (e) => { if (S.mode !== "edit") return; const hit = hitTest(e); if (hit && hit.type === "vertex") removeVertex(hit.index); });
+canvas.addEventListener("contextmenu", (e) => { if (S.mode === "view") return; e.preventDefault(); if (S.mode === "edit") { const hit = hitTest(e); if (hit && hit.type === "vertex") removeVertex(hit.index); } });
+
+/* ---------- toolbar ---------- */
+$("editBtn").addEventListener("click", () => setMode(S.mode === "edit" ? "view" : "edit"));
+$("drawBtn").addEventListener("click", () => setMode(S.mode === "draw" ? "view" : "draw"));
+$("preset").addEventListener("change", async (e) => { const shape = preset(e.target.value); e.target.value = ""; if (shape) { await commit(shape); if (S.mode === "edit") S.draft = S.zone.map((p) => p.slice()); } });
+// Enable or disable Undo / Redo / Reset-to-default according to what is possible right now.
+function syncButtons() { $("undoBtn").disabled = !S.undo.length; $("redoBtn").disabled = !S.redo.length; $("defaultBtn").disabled = !!S.state?.zone.isDefault; }
+async function undo() { if (!S.undo.length) return; const previous = S.undo.pop(), current = S.zone.map((p) => p.slice()); if (await commit(previous, { record: false, quiet: true })) { S.redo.push(current); toast("Undone."); } else S.undo.push(previous); syncButtons(); }
+async function redo() { if (!S.redo.length) return; const next = S.redo.pop(), current = S.zone.map((p) => p.slice()); if (await commit(next, { record: false, quiet: true })) { S.undo.push(current); toast("Redone."); } else S.redo.push(next); syncButtons(); }
+$("undoBtn").addEventListener("click", undo); $("redoBtn").addEventListener("click", redo);
+$("defaultBtn").addEventListener("click", async () => {
+  try { const result = await api("/api/zone/reset", {}); S.undo.push(S.zone.map((p) => p.slice())); S.redo = []; S.zone = result.zone.points; if (S.state) S.state.zone = result.zone; if (S.mode === "edit") S.draft = S.zone.map((p) => p.slice()); toast("Default zone restored."); syncButtons(); updateEditorText(); needsDraw = true; }
+  catch (error) { toast(error.message, true); }
+});
+// The size slider. While it is dragged the shape is scaled about its own centre as an unsaved draft;
+// on release (the "change" event) it is saved once. `limit` stops the shape growing past the picture edge.
+const scaleInput = $("scale");
+function scaledAbout(base, factor) {
+  const xs = base.map((p) => p[0]), ys = base.map((p) => p[1]), cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const limit = Math.min(...[cx / Math.max(1e-6, cx - Math.min(...xs)), (1 - cx) / Math.max(1e-6, Math.max(...xs) - cx), cy / Math.max(1e-6, cy - Math.min(...ys)), (1 - cy) / Math.max(1e-6, Math.max(...ys) - cy)]);
+  const f = Math.min(factor, limit); return { points: base.map((p) => [cx + (p[0] - cx) * f, cy + (p[1] - cy) * f]), factor: f };
+}
+scaleInput.addEventListener("pointerdown", () => { S.scaleBase = (S.draft && S.mode === "edit" ? S.draft : S.zone).map((p) => p.slice()); });
+scaleInput.addEventListener("input", () => {
+  if (!S.scaleBase) S.scaleBase = S.zone.map((p) => p.slice());
+  const result = scaledAbout(S.scaleBase, Number(scaleInput.value) / 100);
+  $("scaleVal").textContent = Math.round(result.factor * 100) + "%";
+  S.draft = result.points; if (S.mode === "view") { S.mode = "edit"; stage.classList.add("editing"); $("editBtn").setAttribute("aria-pressed", "true"); }
+  S.invalid = crossingEdges(S.draft).size > 0; updateEditorText(); needsDraw = true;
+});
+scaleInput.addEventListener("change", async () => {
+  const points = S.draft; scaleInput.value = 100; $("scaleVal").textContent = "100%"; S.scaleBase = null;
+  if (points && !crossingEdges(points).size) await commit(points);
+});
+$("vbody").addEventListener("change", (e) => {
+  const input = e.target.closest("input"); if (!input) return;
+  const i = Number(input.dataset.i), axis = Number(input.dataset.axis), value = Number(input.value);
+  if (!(value >= 0 && value <= 100)) { input.setCustomValidity("Enter a number from 0 to 100"); input.reportValidity(); return; }
+  const next = S.zone.map((p) => p.slice()); next[i][axis] = value / 100; input.blur();
+  if (crossingEdges(next).size) { toast("That would make the shape cross itself, so it was not applied.", true); renderVertexTable(); return; }
+  commit(next);
+});
+$("vbody").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-remove]"); if (!button) return;
+  if (S.zone.length <= MIN_POINTS) { toast("A zone needs at least 3 corners.", true); return; }
+  const next = S.zone.filter((_, i) => i !== Number(button.dataset.remove));
+  if (crossingEdges(next).size) { toast("Removing that corner would make the shape cross itself.", true); return; }
+  commit(next);
+});
+$("addPoint").addEventListener("click", () => { const z = S.zone, a = z[z.length - 1], b = z[0]; commit([...z, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]]); });
+
+/* ---------- run controls ---------- */
+$("pauseBtn").addEventListener("click", async () => { const paused = S.state?.status !== "paused"; try { await api("/api/pause", { paused }); } catch (e) { toast(e.message, true); } poll(); });
+$("restartBtn").addEventListener("click", async () => { try { await api("/api/restart", {}); S.lastEntryN = null; S.shownEvents.clear(); toast("Restarting the source."); } catch (e) { toast(e.message, true); } poll(); });
+$("veilBtn").addEventListener("click", () => $("restartBtn").click());
+$("resetBtn").addEventListener("click", async (e) => {
+  const button = e.currentTarget, now = Date.now();
+  if (now - S.resetArmed > 3500) { S.resetArmed = now; button.textContent = "Click again to confirm"; button.classList.add("danger-ready"); setTimeout(() => { button.textContent = "Reset counters"; button.classList.remove("danger-ready"); }, 3500); return; }
+  S.resetArmed = 0; button.textContent = "Reset counters"; button.classList.remove("danger-ready");
+  try { await api("/api/reset", {}); S.lastEntryN = null; S.shownEvents.clear(); $("feed").innerHTML = ""; toast("Counters reset. The CSV log was kept."); } catch (err) { toast(err.message, true); }
+  poll();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, select, textarea") || e.ctrlKey && !["z", "y"].includes(e.key.toLowerCase()) || e.metaKey || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key === "e") { setMode(S.mode === "edit" ? "view" : "edit"); }
+  else if (key === "d") { setMode(S.mode === "draw" ? "view" : "draw"); }
+  else if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+  else if (e.key === " " && !e.target.closest("button, a")) { e.preventDefault(); $("pauseBtn").click(); }
+  else if (e.key === "Escape") { setMode("view"); }
+  else if (e.key === "Enter" && S.mode === "draw") { e.preventDefault(); finishDrawing(); }
+  else if ((e.key === "Delete" || e.key === "Backspace") && S.mode === "edit" && S.selected >= 0) { e.preventDefault(); removeVertex(S.selected); }
+  else if (e.key === "Backspace" && S.mode === "draw") { e.preventDefault(); S.draft.pop(); updateEditorText(); needsDraw = true; }
+});
+
+/* ---------- charts (hand-drawn SVG; no libraries) ---------- */
+const svgNS = "http://www.w3.org/2000/svg";
+// Chart y-axis maximum: at least 3, so the scale does not look empty or jumpy for small counts.
+const niceMax = (v) => Math.max(3, Math.ceil(v));
+// Gridline values from 0 up to max, about four of them.
+function yTicks(max) { const step = Math.ceil(max / 3); const ticks = []; for (let v = 0; v <= max; v += step) ticks.push(v); return ticks; }
+// Line chart of people in view vs. inside the zone over the last 180 s. The lines are "step" lines
+// (H then V) because each sample holds until the next one. valueAt() feeds the hover tooltip.
+function renderActivity(history) {
+  const host = $("activity"), w = 560, h = 190, m = { l: 30, r: 78, t: 10, b: 24 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const last = history.length ? history[history.length - 1].t : 0, start = last - 180;
+  const valueAt = (t, key) => { let v = 0; for (const s of history) { if (s.t <= t) v = s[key]; else break; } return v; };
+  const visible = history.filter((s) => s.t >= start), max = niceMax(Math.max(0, ...visible.map((s) => Math.max(s.inView, s.inside))));
+  const x = (t) => m.l + ((t - start) / 180) * pw, y = (v) => m.t + ph - (v / max) * ph;
+  const stepPath = (key) => { if (!visible.length) return ""; let d = `M${x(Math.max(start, visible[0].t))},${y(visible[0][key])}`; for (let i = 1; i < visible.length; i++) d += ` H${x(visible[i].t)} V${y(visible[i][key])}`; return d + ` H${x(last)}`; };
+  let svg = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Line chart of people in view and people inside the zone over the last 3 minutes">`;
+  yTicks(max).forEach((v) => { svg += `<line class="grid-line" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis-text" x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`; });
+  [[-180, "-3m"], [-120, "-2m"], [-60, "-1m"], [0, "now"]].forEach(([dt, text]) => { svg += `<text class="axis-text" x="${x(last + dt)}" y="${h - 6}" text-anchor="${dt === 0 ? "end" : dt === -180 ? "start" : "middle"}">${text}</text>`; });
+  if (visible.length) {
+    svg += `<path d="${stepPath("inside")} V${y(0)} H${x(Math.max(start, visible[0].t))} Z" fill="${S.theme.zone}" opacity=".14"/>`;
+    svg += `<path d="${stepPath("inView")}" fill="none" stroke="${S.theme.series}" stroke-width="2" stroke-linejoin="round"/><path d="${stepPath("inside")}" fill="none" stroke="${S.theme.zone}" stroke-width="2" stroke-linejoin="round"/>`;
+    const a = visible[visible.length - 1], yv = y(a.inView), yi = y(a.inside), gap = Math.abs(yv - yi) < 13 ? 7 : 0;
+    svg += `<circle cx="${x(last)}" cy="${yv}" r="4" fill="${S.theme.series}" stroke="${S.theme.surface}" stroke-width="2"/><circle cx="${x(last)}" cy="${yi}" r="4" fill="${S.theme.zone}" stroke="${S.theme.surface}" stroke-width="2"/>`;
+    svg += `<text class="direct" x="${x(last) + 9}" y="${yv - gap + 4}" fill="${S.theme.ink}">In view ${a.inView}</text><text class="direct" x="${x(last) + 9}" y="${yi + gap + 4}" fill="${S.theme.ink}">Inside ${a.inside}</text>`;
+  } else svg += `<text class="axis-text" x="${w / 2}" y="${h / 2}" text-anchor="middle">Waiting for the first frame</text>`;
+  svg += `<line id="xhair" y1="${m.t}" y2="${m.t + ph}" stroke="${S.theme.muted}" stroke-dasharray="3 3" style="display:none"/><rect id="hit" x="${m.l}" y="${m.t}" width="${pw}" height="${ph}" fill="transparent"/></svg><div class="tip" id="tipA"></div>`;
+  host.innerHTML = svg;
+  const hit = host.querySelector("#hit"), line = host.querySelector("#xhair"), tip = host.querySelector("#tipA");
+  const move = (e) => {
+    S.hoverX = e.clientX;
+    const box = host.querySelector("svg").getBoundingClientRect(), scale = w / box.width, sx = (e.clientX - box.left) * scale;
+    const t = start + ((sx - m.l) / pw) * 180, ago = Math.round(last - t);
+    line.setAttribute("x1", sx); line.setAttribute("x2", sx); line.style.display = "";
+    tip.innerHTML = `<b>${ago <= 0 ? "now" : ago + " s ago"}</b><br>In view <b>${valueAt(t, "inView")}</b> · Inside <b>${valueAt(t, "inside")}</b>`;
+    tip.style.left = Math.min(box.width - 150, Math.max(0, sx / scale + 12)) + "px"; tip.style.top = "6px"; tip.classList.add("show");
+  };
+  hit.addEventListener("pointermove", move); hit.addEventListener("pointerleave", () => { S.hoverX = undefined; line.style.display = "none"; tip.classList.remove("show"); });
+  const rows = visible.slice(-12).reverse().map((s) => `<tr><td>${last - s.t}</td><td>${s.inView}</td><td>${s.inside}</td></tr>`).join("");
+  document.querySelector("#activityTable tbody").innerHTML = rows || '<tr><td colspan="3">No data yet</td></tr>';
+}
+// Bar chart of entries in each of the last 10 minutes (buckets come from Session._entries_per_minute).
+function renderPerMinute(buckets) {
+  const host = $("perMinute"), w = 560, h = 170, m = { l: 30, r: 8, t: 18, b: 24 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const max = niceMax(Math.max(0, ...buckets.map((b) => b.count))), slot = pw / buckets.length, bw = slot - 4, y = (v) => m.t + ph - (v / max) * ph;
+  let svg = `<svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Bar chart of entries per minute over the last 10 minutes">`;
+  yTicks(max).forEach((v) => { svg += `<line class="grid-line" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis-text" x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`; });
+  const peak = Math.max(...buckets.map((b) => b.count));
+  buckets.forEach((b, i) => {
+    const bx = m.l + i * slot + 2, bh = Math.max(0, (b.count / max) * ph), by = m.t + ph - bh, r = Math.min(4, bh / 2);
+    if (b.count) svg += `<path d="M${bx},${m.t + ph} V${by + r} Q${bx},${by} ${bx + r},${by} H${bx + bw - r} Q${bx + bw},${by} ${bx + bw},${by + r} V${m.t + ph} Z" fill="${S.theme.zone}"/>`;
+    if (b.count && (b.count === peak || i === buckets.length - 1)) svg += `<text class="axis-text" style="fill:${S.theme.ink};font-weight:600" x="${bx + bw / 2}" y="${by - 5}" text-anchor="middle">${b.count}</text>`;
+    if (i % 2 === 1 || i === buckets.length - 1) svg += `<text class="axis-text" x="${bx + bw / 2}" y="${h - 6}" text-anchor="middle">${b.label}</text>`;
+    svg += `<rect data-i="${i}" x="${m.l + i * slot}" y="${m.t}" width="${slot}" height="${ph}" fill="transparent"/>`;
+  });
+  svg += `</svg><div class="tip" id="tipB"></div>`; host.innerHTML = svg;
+  const tip = host.querySelector("#tipB");
+  host.querySelectorAll("rect[data-i]").forEach((rect) => {
+    rect.addEventListener("pointermove", () => { const b = buckets[Number(rect.dataset.i)], box = host.querySelector("svg").getBoundingClientRect(), scale = box.width / w;
+      tip.innerHTML = `<b>${b.label === "now" ? "Last minute" : b.label.replace("-", "") + " ago"}</b><br><b>${b.count}</b> ${b.count === 1 ? "entry" : "entries"}`;
+      tip.style.left = Math.min(box.width - 110, (Number(rect.getAttribute("x")) + slot / 2) * scale) + "px"; tip.style.top = "0px"; tip.classList.add("show"); });
+    rect.addEventListener("pointerleave", () => tip.classList.remove("show"));
+  });
+}
+let chartSignature = "";  // fingerprint of the data last drawn, to skip redrawing identical charts
+function renderCharts(force = false) {
+  if (!S.state) return;
+  const last = S.state.history[S.state.history.length - 1], signature = JSON.stringify([S.state.history.length, last, S.state.perMinute]);
+  if (!force && signature === chartSignature) return;               // only redraw when the data changed, so hovering stays smooth
+  chartSignature = signature; renderActivity(S.state.history); renderPerMinute(S.state.perMinute);
+  if (S.hoverX !== undefined) { const hit = $("activity").querySelector("#hit"); if (hit) hit.dispatchEvent(new PointerEvent("pointermove", { clientX: S.hoverX })); }
+}
+$("tableToggle").addEventListener("click", (e) => { S.tableOpen = !S.tableOpen; $("activityTable").classList.toggle("show", S.tableOpen); e.currentTarget.textContent = S.tableOpen ? "Hide table" : "Show as table"; e.currentTarget.setAttribute("aria-expanded", S.tableOpen); });
+
+/* ---------- video playback: progress and speed ---------- */
+// Progress bar, clock and speed selector for video files; hidden for a webcam (video is null).
+const speedSelect = $("speed");
+function renderPlayback(video, processedFps) {
+  const box = $("playback"); box.hidden = !video; if (!video) return;
+  const pct = video.duration ? Math.min(100, (video.position / video.duration) * 100) : 0;
+  $("progressBar").style.width = pct + "%"; $("progress").setAttribute("aria-valuenow", Math.round(pct));
+  setText($("videoClock"), `${fmtDuration(video.position)} / ${video.duration ? fmtDuration(video.duration) : "?"}`);
+  const value = String(video.speed);
+  if (![...speedSelect.options].some((option) => option.value === value)) { const extra = new Option(`${video.speed}×`, value); speedSelect.add(extra); }
+  if (document.activeElement !== speedSelect) speedSelect.value = value;
+  if (video.speed === 0) {
+    const ratio = processedFps && video.fps ? Math.min(100, (processedFps / video.fps) * 100) : null;
+    setText($("speedHint"), ratio !== null && ratio < 95
+      ? `Every frame is analysed, so this ${Math.round(video.fps)}-frames-per-second video plays at about ${ratio < 10 ? ratio.toFixed(1) : Math.round(ratio)}% of normal speed on this computer. Choose a playback speed to skip frames and keep up.`
+      : "Every frame is analysed.");
+  } else {
+    setText($("speedHint"), `Playing at ${video.speed}× normal speed. Frames the computer cannot keep up with are skipped, so a very fast walker crossing a thin zone could be missed.`);
+  }
+}
+speedSelect.addEventListener("change", async () => {
+  try { const result = await api("/api/speed", { speed: Number(speedSelect.value) }); toast(result.speed === 0 ? "Analysing every frame." : `Playing at ${result.speed}× normal speed.`); }
+  catch (error) { toast(error.message, true); }
+  speedSelect.blur(); poll();
+});
+
+/* ---------- applying a state update ---------- */
+// Words shown in the status pill for each status the server (or this page, for "offline") can report.
+const STATUS_TEXT = { monitoring: "Monitoring", paused: "Paused", error: "Problem", ended: "Video ended", starting: "Starting", offline: "Offline" };
+// Apply one /api/state update to the whole page: status pill, veil over the video, counters, zone, charts,
+// feed and report. Called after every poll. The zone is only taken from the server when the user is not
+// in the middle of editing it, so a poll never overwrites an unsaved change.
+function applyState(st) {
+  const first = !S.state; S.state = st;
+  const pill = $("status"); pill.dataset.status = st.status; setText($("statusText"), STATUS_TEXT[st.status] || st.status);
+  setText($("source"), st.source); setText($("fps"), st.fps ? `${st.fps.toFixed(1)} fps` : "-"); setText($("uptime"), fmtDuration(st.uptime));
+  if (st.frame) { const aspect = st.frame.w / st.frame.h; if (Math.abs(aspect - S.aspect) > 0.001) { S.aspect = aspect; stage.style.setProperty("--aspect", aspect.toFixed(4)); } if (!S.frameKnown) { S.frameKnown = true; stage.classList.add("has-frame"); } }
+  $("pauseBtn").setAttribute("aria-pressed", st.status === "paused"); $("pauseBtn").querySelector("span").textContent = st.status === "paused" ? "Resume" : "Pause";
+  $("pauseBtn").disabled = !["monitoring", "paused"].includes(st.status);
+
+  $("veil").classList.toggle("show", ["starting", "error", "ended"].includes(st.status));
+  $("spinner").style.display = st.status === "starting" ? "block" : "none";
+  $("veilTitle").textContent = { starting: "Starting", error: "Camera problem", ended: "Video ended" }[st.status] || "";
+  $("veilText").textContent = st.message || "";
+  $("veilBtn").hidden = st.status === "starting"; $("veilBtn").textContent = st.status === "ended" ? "Play again" : "Retry";
+  if (st.status === "paused" && S.mode === "view") { $("chip").textContent = "Paused"; $("chip").className = "stage-chip show"; } else if (S.mode === "view") $("chip").classList.remove("show");
+
+  const c = st.counts; countTo($("entries"), c.entries); countTo($("inside"), c.inside); countTo($("inView"), c.inView); countTo($("peak"), c.peakInView); countTo($("uniqueIds"), c.uniqueIds);
+  $("tileInside").classList.toggle("hot", c.inside > 0);
+  $("entriesSub").textContent = c.entries ? `${c.entries === 1 ? "1 person has" : c.entries + " entries have"} crossed into the zone.` : "Waiting for the first entry.";
+  setText($("logCount"), `${c.entries} this session`);
+
+  if (!S.drag && S.mode !== "draw" && !(S.mode === "edit" && S.invalid)) {            // follow the server's zone unless the user is mid-edit
+    const same = JSON.stringify(S.zone) === JSON.stringify(st.zone.points);
+    if (!same) { S.zone = st.zone.points; if (S.mode === "edit") S.draft = S.zone.map((p) => p.slice()); updateEditorText(); }
+  }
+  renderPlayback(st.video, st.fps);
+  syncButtons(); renderFeed(st.events, first); renderReport(st); renderCharts();
+  canvas.setAttribute("aria-label", `Restricted zone with ${S.zone.length} corners. ${c.inside} ${c.inside === 1 ? "person" : "people"} inside.`);
+  if (S.lastEntryN === null) S.lastEntryN = c.entries;
+  else if (c.entries > S.lastEntryN) { announceEntries(st.events.filter((e) => e.n > S.lastEntryN)); S.lastEntryN = c.entries; }
+  else if (c.entries < S.lastEntryN) { S.lastEntryN = c.entries; S.shownEvents.clear(); $("feed").innerHTML = ""; renderFeed(st.events, true); }
+  needsDraw = true;
+}
+// Called when the entry count goes up: pulse the zone, show the "Entry #n" stamp, bump the big number and
+// toast it. The void ...offsetWidth lines force a reflow so the CSS animation can restart.
+function announceEntries(newEvents) {
+  if (!newEvents.length) return; const newest = newEvents[0];
+  S.flash = performance.now();
+  const stamp = $("stamp"); stamp.textContent = `Entry #${newest.n} · ID ${newest.id}`; stamp.classList.remove("show"); void stamp.offsetWidth; if (!reduceMotion) stamp.classList.add("show");
+  const big = $("entries"); big.classList.remove("bump"); void big.offsetWidth; if (!reduceMotion) big.classList.add("bump");
+  toast(`Entry #${newest.n}: tracking ID ${newest.id} entered the zone`);
+}
+// Add entries not yet shown to the top of the feed (50 at most). `first` is true on the very first update,
+// so entries that already existed on page load do not all play the "new" animation.
+function renderFeed(events, first) {
+  const feed = $("feed"); $("feedEmpty").style.display = events.length ? "none" : "";
+  for (const e of [...events].reverse()) {                                   // oldest of the batch first, so the newest ends on top
+    const key = `${e.n}:${e.ts}`; if (S.shownEvents.has(key)) continue; S.shownEvents.add(key);
+    const li = document.createElement("li"); if (!first) li.className = "new";
+    li.innerHTML = `<span class="n">#${e.n}</span><span class="t">${e.time}</span><span class="who">Tracking ID ${e.id}</span><span class="tag">ENTRY</span>`;
+    feed.prepend(li);
+  }
+  while (feed.children.length > 50) feed.lastChild.remove();
+}
+// The small live "session report" panel (the per-minute rate is hidden for the first 15 s, when it would mislead).
+function renderReport(st) {
+  const c = st.counts, minutes = st.uptime / 60, rate = minutes >= 0.25 ? (c.entries / minutes).toFixed(1) : "-";
+  const lines = [["Session length", fmtDuration(st.uptime)], ["Entries counted", c.entries], ["Entries per minute", rate], ["Most people in view at once", c.peakInView], ["Most inside the zone at once", c.peakInside], ["Confirmation window", `${st.confirmFrames} frames`]];
+  const html = lines.map(([a, b]) => `<div class="report-line"><span>${a}</span><span>${b}</span></div>`).join("");
+  if ($("reportLines").dataset.sig !== html) { $("reportLines").innerHTML = html; $("reportLines").dataset.sig = html; }
+}
+
+/* ---------- polling ---------- */
+// The page asks the server for the full state every 0.6 s. `polling` stops requests overlapping when the
+// server is slow; after 3 failures in a row the "connection lost" banner appears and the pill says Offline.
+let polling = false;
+async function poll() {
+  if (polling) return; polling = true;
+  try { const st = await api("/api/state"); S.failures = 0; $("banner").classList.remove("show"); applyState(st); }
+  catch (e) {
+    S.failures++; if (S.failures >= 3) { $("banner").classList.add("show"); const pill = $("status"); pill.dataset.status = "offline"; setText($("statusText"), STATUS_TEXT.offline); }
+  } finally { polling = false; }
+}
+// The live video is an <img> fed by the MJPEG stream; if it drops, try to reconnect (with a cache-busting query).
+$("stream").addEventListener("error", () => setTimeout(() => { $("stream").src = "/stream.mjpg?t=" + Date.now(); }, 1500));
+$("stream").src = "/stream.mjpg";
+
+applyTheme(document.documentElement.getAttribute("data-theme"));
+resize(); updateEditorText(); syncButtons();
+requestAnimationFrame(frameLoop);
+poll(); setInterval(poll, 600);
+})();
+</script>
+</body>
+</html>
