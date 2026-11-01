@@ -66,6 +66,7 @@ body::before { content: ""; position: fixed; inset: 0; background: var(--ground)
 h1, h2, h3, p { margin: 0; }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+[hidden] { display: none !important; }  /* the hidden attribute must win over rules like .btn { display: inline-flex } */
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .eyebrow { font: 600 11px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
@@ -212,6 +213,34 @@ details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .report-line span:last-child { font: 600 14px var(--mono); }
 .fine { color: var(--muted); font-size: 12px; margin-top: 10px; }
 
+/* ---------- foot heat-map legend ---------- */
+.heatbar { padding: 10px 18px 0; display: grid; gap: 6px; }
+.heatbar[hidden] { display: none; }
+.heatbar .hint { color: var(--ink-2); font-size: 13px; margin: 0; }
+.heat-scale { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-2); }
+.heat-scale i { flex: 0 1 180px; height: 10px; border-radius: 5px; background: linear-gradient(90deg, #1F6DB8, #F2C14E, #E2570B); }
+
+/* ---------- counting rule ---------- */
+.choices { border: 0; padding: 0; margin: 0 0 10px; display: grid; gap: 8px; min-width: 0; }
+.choice, .check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 8px; cursor: pointer; background: var(--surface); }
+.choice:hover, .check:hover { border-color: var(--rule-strong); }
+.choice:has(input:checked) { border-color: var(--zone); background: color-mix(in srgb, var(--zone) 8%, var(--surface)); }
+.choice input, .check input { margin: 3px 0 0; accent-color: var(--zone); width: 16px; height: 16px; }
+.choice small, .check small { display: block; color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+.choice em { font: 700 10px var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; margin-left: 6px; }
+
+/* ---------- manual-count check ---------- */
+.manual label.lab { display: block; font-weight: 600; margin-bottom: 6px; }
+.manual input[type=number] { width: 130px; padding: 7px 10px; border: 1px solid var(--rule); border-radius: 7px; background: var(--surface); font-size: 16px; }
+.cmp { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; margin-top: 14px; }
+.cmp > div { padding: 10px 12px; border-right: 1px solid var(--rule); min-width: 0; }
+.cmp > div:last-child { border-right: 0; }
+.cmp .val { font: 600 26px/1.1 var(--mono); margin-top: 4px; }
+.cmp [data-state="match"] .val { color: var(--ok); }
+.cmp [data-state="off"] .val { color: var(--warn); }
+.manual-result[hidden] { display: none; }
+.manual-result p { margin-top: 10px; }
+
 /* ---------- toasts, footer ---------- */
 .toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: grid; gap: 8px; z-index: 20; width: min(92vw, 460px); pointer-events: none; }
 .toast { padding: 10px 14px; border-radius: 8px; background: var(--rule-strong); color: var(--surface); box-shadow: var(--shadow); font-weight: 600; animation: toast .25s ease-out; }
@@ -255,6 +284,7 @@ details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
         <h2 id="liveTitle">Live view</h2>
         <div class="row">
           <button class="btn" id="pauseBtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg><span>Pause</span> <kbd>Space</kbd></button>
+          <button class="btn" id="heatBtn" type="button" aria-pressed="false" title="Shade the picture by where people's feet have been, to help you place the zone">Foot heat-map <kbd>H</kbd></button>
           <button class="btn" id="resetBtn" type="button">Reset counters</button>
           <button class="btn" id="restartBtn" type="button">Restart source</button>
         </div>
@@ -267,6 +297,10 @@ details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
           <div class="stamp" id="stamp"></div>
           <div class="veil show" id="veil"><div><div class="spinner" id="spinner"></div><h3 id="veilTitle">Starting</h3><p id="veilText">Starting the camera and loading the model.</p><button class="btn" id="veilBtn" type="button" hidden>Retry</button></div></div>
         </div>
+      </div>
+      <div class="heatbar" id="heatbar" hidden>
+        <div class="heat-scale"><span>Less time</span><i aria-hidden="true"></i><span>More time</span></div>
+        <p class="hint" id="heatHint"></p>
       </div>
       <div class="playback" id="playback" hidden>
         <div class="playback-row">
@@ -304,11 +338,25 @@ details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
       </div>
     </section>
 
+    <section class="card" aria-labelledby="ruleTitle">
+      <div class="card-head"><h2 id="ruleTitle">What counts as inside</h2><span class="eyebrow" id="ruleNow">Feet</span></div>
+      <div class="card-body">
+        <fieldset class="choices" id="ruleChoices">
+          <legend class="sr-only">Counting rule</legend>
+          <label class="choice"><input type="radio" name="rule" value="feet"><span><b>Feet</b><em>default</em><small>The bottom-centre of the person's box, roughly where they stand. Best when the zone is drawn on the floor.</small></span></label>
+          <label class="choice"><input type="radio" name="rule" value="centre"><span><b>Middle of the body</b><small>The centre of the box. Suits a camera looking steeply down, or a zone at body height.</small></span></label>
+          <label class="choice"><input type="radio" name="rule" value="overlap"><span><b>Any overlap</b><small>Counts as soon as any part of the box touches the zone. Most sensitive: it also counts people who only brush past the edge.</small></span></label>
+        </fieldset>
+        <label class="check"><input type="checkbox" id="firstSeen"><span><b>Also count people who first appear already inside</b><small>Off by default. It catches people the camera first sees inside the zone, but someone who gets a new tracking ID while standing inside is counted again.</small></span></label>
+        <p class="fine">A change applies from the next frame. It never counts people who are already in view, and entries already counted stay. The OpenCV window (<span class="num">main.py</span>) uses the settings at the top of that file instead.</p>
+      </div>
+    </section>
+
     <section class="card" aria-labelledby="logTitle">
       <div class="card-head"><h2 id="logTitle">Entry log</h2><span class="eyebrow" id="logCount">0 this session</span></div>
       <div class="card-body">
         <ul class="feed" id="feed" aria-live="polite"></ul>
-        <p class="empty" id="feedEmpty">No entries yet. An entry is counted when a person's feet move from outside the shaded zone to inside it. Draw the zone where people will walk, then step into it.</p>
+        <p class="empty" id="feedEmpty">No entries yet. An entry is counted when a person moves from outside the shaded zone to inside it (what counts as inside is set under "What counts as inside"). Draw the zone where people will walk, then step into it.</p>
       </div>
     </section>
   </div>
@@ -325,6 +373,29 @@ details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
         <div class="tile"><div class="eyebrow">In view</div><div class="val" id="inView">0</div></div>
         <div class="tile"><div class="eyebrow">Most at once</div><div class="val" id="peak">0</div></div>
         <div class="tile"><div class="eyebrow">Tracking IDs</div><div class="val" id="uniqueIds">0</div><div class="hint">not the same as people</div></div>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="manTitle">
+      <div class="card-head"><h2 id="manTitle">Check against your count</h2></div>
+      <div class="card-body manual">
+        <form id="manualForm" novalidate>
+          <label class="lab" for="manualInput">Entries I counted myself</label>
+          <div class="row">
+            <input id="manualInput" class="num" type="number" min="0" step="1" inputmode="numeric" placeholder="e.g. 6">
+            <button class="btn primary" type="submit">Compare</button>
+            <button class="btn" id="manualClear" type="button" hidden>Clear</button>
+          </div>
+        </form>
+        <div class="manual-result" id="manualResult" hidden aria-live="polite">
+          <div class="cmp">
+            <div><div class="eyebrow">You counted</div><div class="val" id="mManual">-</div></div>
+            <div><div class="eyebrow">System counted</div><div class="val" id="mSystem">-</div></div>
+            <div id="mDiffTile"><div class="eyebrow">System minus you</div><div class="val" id="mDiff">-</div></div>
+          </div>
+          <p id="mSummary"></p>
+        </div>
+        <p class="fine">Watch the video, count the entries yourself, then type your number. This compares two totals for one session. It is not an accuracy score: a missed entry and a false one can cancel out, and one video says little about other cameras or crowds.</p>
       </div>
     </section>
 
@@ -357,7 +428,7 @@ details.numbers summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 </div>
 
 <footer class="foot">
-  <span><kbd>E</kbd> edit shape</span><span><kbd>D</kbd> draw new</span><span><kbd>Z</kbd> undo</span><span><kbd>Y</kbd> redo</span>
+  <span><kbd>E</kbd> edit shape</span><span><kbd>D</kbd> draw new</span><span><kbd>H</kbd> heat-map</span><span><kbd>Z</kbd> undo</span><span><kbd>Y</kbd> redo</span>
   <span><kbd>Space</kbd> pause</span><span><kbd>Esc</kbd> cancel</span><span><kbd>Del</kbd> remove selected point</span>
   <span>Tracking IDs are temporary. Counts are not guaranteed to be exact.</span>
 </footer>
@@ -537,6 +608,8 @@ let dashOffset = 0;  // moves the dashed outline along while the zone is occupie
 // the dimmed surroundings, "+" midpoint handles and square corner handles.
 function draw(now) {
   ctx.clearRect(0, 0, W, H);
+  // The foot heat-map goes underneath everything else. Drawing the tiny grid canvas scaled up smooths the cell edges.
+  if (heat.on && heat.data && heat.data.total) { ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high"; ctx.drawImage(heat.canvas, 0, 0, W, H); ctx.restore(); }
   const pts = currentZone(); if (!pts || !pts.length) return;
   const editing = S.mode !== "view", occupied = (S.state?.counts.inside || 0) > 0, bad = crossingEdges(pts);
   const flashT = S.flash ? Math.min(1, (now - S.flash) / 1100) : 1;
@@ -587,6 +660,96 @@ function frameLoop(now) {
   if (needsDraw || animating) { draw(now); needsDraw = false; }
   requestAnimationFrame(frameLoop);
 }
+
+/* ---------- zone insights: foot heat-map, counting rule, manual-count check ---------- */
+const RULE_NAMES = { feet: "Feet", centre: "Middle of the body", overlap: "Any overlap" };
+
+// Foot heat-map. The server keeps only anonymous counts per grid cell (no picture, no per-person path); this
+// draws them as a soft colour wash under the zone. Colour ramp (blue -> yellow -> orange) matches the printed report.
+const heat = { on: false, data: null, timer: null, canvas: document.createElement("canvas") };
+function heatRgb(level) {
+  const stops = [[0, [31, 109, 184]], [0.5, [242, 193, 78]], [1, [226, 87, 11]]];
+  for (let i = 1; i < stops.length; i++) {
+    const [lo, a] = stops[i - 1], [hi, b] = stops[i];
+    if (level <= hi) { const t = (level - lo) / (hi - lo); return a.map((v, k) => Math.round(v + (b[k] - v) * t)); }
+  }
+  return stops[stops.length - 1][1];
+}
+// Paint the grid into a tiny canvas with one pixel per cell. The square root keeps one person who stood still
+// from washing out everyone else's walking.
+function buildHeatCanvas(data) {
+  const c = heat.canvas; c.width = data.cols; c.height = data.rows;
+  const g = c.getContext("2d"), image = g.createImageData(data.cols, data.rows);
+  data.cells.forEach((count, i) => {
+    if (!count) return;
+    const level = Math.sqrt(count / data.max), [r, gr, b] = heatRgb(level);
+    image.data.set([r, gr, b, Math.round(255 * (0.4 + 0.45 * level))], i * 4);
+  });
+  g.putImageData(image, 0, 0);
+}
+async function loadHeat() {
+  try { heat.data = await api("/api/heatmap"); buildHeatCanvas(heat.data); renderHeatHint(); needsDraw = true; }
+  catch (e) { /* the next tick tries again; poll() shows the connection banner if the server is really gone */ }
+}
+function renderHeatHint() {
+  setText($("heatHint"), heat.data && heat.data.total
+    ? "Hotter colours are where feet have spent the most time in this session. A good zone covers the places people really walk. Only counts per area are kept: no picture and no path of any person."
+    : "No one has been seen yet. Walk through the picture and the map fills in.");
+}
+// Turn the heat-map on or off. While it is on, the grid is fetched every 1.5 s (it is not part of the 0.6 s poll).
+function setHeat(on) {
+  heat.on = on; clearInterval(heat.timer);
+  $("heatBtn").setAttribute("aria-pressed", on); $("heatbar").hidden = !on;
+  if (on) { renderHeatHint(); loadHeat(); heat.timer = setInterval(loadHeat, 1500); }
+  needsDraw = true;
+}
+$("heatBtn").addEventListener("click", () => setHeat(!heat.on));
+
+// Counting rule. renderRules copies the server's rule into the controls; it is skipped while a change is being
+// sent, so the choice does not flicker back to the old value for a moment.
+let rulesBusy = false;
+function renderRules(rules) {
+  if (!rules || rulesBusy) return;
+  document.querySelectorAll('input[name="rule"]').forEach((input) => { input.checked = input.value === rules.rule; });
+  $("firstSeen").checked = rules.countFirstSeenInside;
+  setText($("ruleNow"), RULE_NAMES[rules.rule] + (rules.countFirstSeenInside ? " + first-seen" : ""));
+}
+async function sendRules(body) {
+  rulesBusy = true;
+  try {
+    const result = await api("/api/rules", body);
+    if (S.state) S.state.rules = result.rules;
+    toast(`Counting rule: ${RULE_NAMES[result.rules.rule]}${result.rules.countFirstSeenInside ? ", people first seen inside are counted" : ""}. It applies from the next frame.`);
+  } catch (error) { toast(error.message, true); }
+  finally { rulesBusy = false; }
+  renderRules(S.state && S.state.rules); poll();
+}
+document.querySelectorAll('input[name="rule"]').forEach((input) => input.addEventListener("change", () => { if (input.checked) sendRules({ rule: input.value }); }));
+$("firstSeen").addEventListener("change", (e) => sendRules({ countFirstSeenInside: e.target.checked }));
+
+// Manual-count check. The server compares the typed number with its own count and keeps both up to date as
+// entries arrive; this only shows what it sends. hadManual lets the box empty itself after "Reset counters"
+// without wiping a number the user is still typing.
+let hadManual = false;
+function renderManual(check) {
+  $("manualResult").hidden = !check; $("manualClear").hidden = !check;
+  if (!check) { if (hadManual && document.activeElement !== $("manualInput")) $("manualInput").value = ""; hadManual = false; return; }
+  hadManual = true;
+  setText($("mManual"), check.manual); setText($("mSystem"), check.system);
+  setText($("mDiff"), (check.difference > 0 ? "+" : "") + check.difference);
+  $("mDiffTile").dataset.state = check.difference === 0 ? "match" : "off";
+  setText($("mSummary"), check.summary);
+}
+$("manualForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const value = Number($("manualInput").value.trim() === "" ? NaN : $("manualInput").value);
+  if (!Number.isFinite(value)) { toast("Type the number of entries you counted first.", true); return; }
+  try { const result = await api("/api/manual", { count: value }); renderManual(result.manualCheck); toast("Compared with your count."); }
+  catch (error) { toast(error.message, true); }
+});
+$("manualClear").addEventListener("click", async () => {
+  try { await api("/api/manual", { count: null }); $("manualInput").value = ""; renderManual(null); } catch (error) { toast(error.message, true); }
+});
 
 /* ---------- editing ---------- */
 // Pointer position -> 0-1 fractions of the picture, clamped to its edges.
@@ -793,6 +956,7 @@ document.addEventListener("keydown", (e) => {
   const key = e.key.toLowerCase();
   if (key === "e") { setMode(S.mode === "edit" ? "view" : "edit"); }
   else if (key === "d") { setMode(S.mode === "draw" ? "view" : "draw"); }
+  else if (key === "h") { setHeat(!heat.on); }
   else if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
   else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
   else if (e.key === " " && !e.target.closest("button, a")) { e.preventDefault(); $("pauseBtn").click(); }
@@ -932,6 +1096,7 @@ function applyState(st) {
     if (!same) { S.zone = st.zone.points; if (S.mode === "edit") S.draft = S.zone.map((p) => p.slice()); updateEditorText(); }
   }
   renderPlayback(st.video, st.fps);
+  renderRules(st.rules); renderManual(st.manualCheck);
   syncButtons(); renderFeed(st.events, first); renderReport(st); renderCharts();
   canvas.setAttribute("aria-label", `Restricted zone with ${S.zone.length} corners. ${c.inside} ${c.inside === 1 ? "person" : "people"} inside.`);
   if (S.lastEntryN === null) S.lastEntryN = c.entries;
@@ -963,7 +1128,7 @@ function renderFeed(events, first) {
 // The small live "session report" panel (the per-minute rate is hidden for the first 15 s, when it would mislead).
 function renderReport(st) {
   const c = st.counts, minutes = st.uptime / 60, rate = minutes >= 0.25 ? (c.entries / minutes).toFixed(1) : "-";
-  const lines = [["Session length", fmtDuration(st.uptime)], ["Entries counted", c.entries], ["Entries per minute", rate], ["Most people in view at once", c.peakInView], ["Most inside the zone at once", c.peakInside], ["Confirmation window", `${st.confirmFrames} frames`]];
+  const lines = [["Session length", fmtDuration(st.uptime)], ["Entries counted", c.entries], ["Entries per minute", rate], ["Most people in view at once", c.peakInView], ["Most inside the zone at once", c.peakInside], ["Confirmation window", `${st.confirmFrames} frames`], ["Counting rule", RULE_NAMES[st.rules.rule] + (st.rules.countFirstSeenInside ? " + first-seen" : "")]];
   const html = lines.map(([a, b]) => `<div class="report-line"><span>${a}</span><span>${b}</span></div>`).join("");
   if ($("reportLines").dataset.sig !== html) { $("reportLines").innerHTML = html; $("reportLines").dataset.sig = html; }
 }
