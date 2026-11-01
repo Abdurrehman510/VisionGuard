@@ -45,6 +45,18 @@ ZONE_COLOR = (0, 0, 255)  # BGR red
 # filters out one- or two-frame flicker of the bounding box along the zone edge. 1 = count at once.
 ZONE_CONFIRM_FRAMES = 3
 
+# --- Counting rule (what "inside the zone" means) ---
+# "feet"    the bottom-centre of the person's box, roughly where they stand (the default; Technical Rule 4)
+# "centre"  the middle of the box; for cameras that look steeply down, or a zone at body height
+# "overlap" any part of the box touching the zone; the most sensitive choice
+COUNT_RULES = ("feet", "centre", "overlap")
+COUNT_RULE = "feet"
+# False (default): a person whose ID is first seen already inside is NOT counted, because no outside-to-inside
+# move was observed (Technical Rule 5). True: such a person is counted once (after the confirmation window), which
+# catches people who appear inside the zone but can also count the same person again if the tracker gives them a
+# new ID while they stand inside.
+COUNT_FIRST_SEEN_INSIDE = False
+
 
 # --- Zone and configuration validation ---------------------------------------------------------------
 
@@ -111,13 +123,27 @@ def validate_zone(zone_fractions, label="ZONE_POLYGON"):
         raise RuntimeError(f"{label} has no area (its points lie on a line).")
 
 
-def validate_config(zone_fractions, confidence, confirm_frames):
+def validate_rule(rule):
+    """Raise RuntimeError unless `rule` is one of COUNT_RULES."""
+    if not isinstance(rule, str) or rule not in COUNT_RULES:
+        raise RuntimeError(f"COUNT_RULE must be one of {', '.join(repr(name) for name in COUNT_RULES)}, not {rule!r}.")
+
+
+def validate_count_first_seen(value):
+    """Raise RuntimeError unless the switch is exactly True or False (1, 0 and "yes" are refused on purpose)."""
+    if not isinstance(value, bool):
+        raise RuntimeError(f"COUNT_FIRST_SEEN_INSIDE must be True or False, not {value!r}.")
+
+
+def validate_config(zone_fractions, confidence, confirm_frames, rule=COUNT_RULE, count_first_seen_inside=COUNT_FIRST_SEEN_INSIDE):
     """Raise RuntimeError with a clear message if a configuration value cannot be used."""
     validate_zone(zone_fractions)
     if not is_number(confidence) or not 0 < confidence <= 1:
         raise RuntimeError(f"CONFIDENCE_THRESHOLD must be a number above 0 and at most 1, not {confidence!r}.")
     if not isinstance(confirm_frames, int) or isinstance(confirm_frames, bool) or confirm_frames < 1:
         raise RuntimeError(f"ZONE_CONFIRM_FRAMES must be a whole number of at least 1, not {confirm_frames!r}.")
+    validate_rule(rule)
+    validate_count_first_seen(count_first_seen_inside)
 
 
 def load_zone(zone_file, default):
@@ -290,6 +316,12 @@ def bottom_centre(box):
     return ((x1 + x2) / 2, float(y2))
 
 
+def centre_point(box):
+    """The middle of the box (x1, y1, x2, y2); the reference point of the "centre" counting rule."""
+    x1, y1, x2, y2 = box
+    return ((x1 + x2) / 2, (y1 + y2) / 2)
+
+
 def scale_zone(zone_fractions, width, height):
     """Convert zone points given as 0-1 fractions of the frame into pixel coordinates."""
     return np.array([(x * width, y * height) for x, y in zone_fractions], dtype=np.float32)
@@ -301,20 +333,25 @@ def point_in_zone(point, zone):
     return cv2.pointPolygonTest(zone, (float(point[0]), float(point[1])), False) >= 0
 
 
-def find_entries(zone_states, inside_by_id, confirm_frames=1):
+def find_entries(zone_states, inside_by_id, confirm_frames=1, count_first_seen_inside=False):
     """Return the track IDs that moved from outside to inside the zone in this frame.
 
     zone_states maps track ID -> (confirmed inside/outside state, consecutive frames seen in the
     opposite state) and is updated in place. A change of state is confirmed only after it has lasted
     confirm_frames frames in a row, which filters out one- or two-frame flicker of the bounding box
     at the zone edge. With confirm_frames=1 every change counts immediately.
-    A person first seen already inside has no known previous state, so no entry is counted.
+    A person first seen already inside has no known previous state, so by default no entry is counted.
+    With count_first_seen_inside=True such a person is treated as having been outside just before, so they
+    are counted once, after the same confirmation window.
     """
     entered = []
     for track_id, is_inside in inside_by_id.items():
         if track_id not in zone_states:
-            zone_states[track_id] = (is_inside, 0)  # first sighting: remember the state, never count an entry
-            continue
+            if count_first_seen_inside and is_inside:
+                zone_states[track_id] = (False, 0)  # pretend "outside until now", then judge this frame below
+            else:
+                zone_states[track_id] = (is_inside, 0)  # first sighting: remember the state, never count an entry
+                continue
         confirmed, differing_frames = zone_states[track_id]
         # Count consecutive frames that disagree with the confirmed state; any agreeing frame resets the count.
         differing_frames = differing_frames + 1 if is_inside != confirmed else 0
@@ -348,21 +385,54 @@ def log_entry(csv_path, track_id):
     return True
 
 
-def check_zone(people, zone):
-    """Map each tracked person's ID to True/False: is their bottom-centre point inside the zone?"""
+def box_overlaps_zone(box, zone):
+    """True if any part of the box (x1, y1, x2, y2) touches or lies inside the zone polygon (pixels).
+
+    Two shapes overlap if a box corner is inside the zone, a zone corner is inside the box, or an edge of one
+    crosses an edge of the other; if none of those holds they are apart. This works for concave zones too.
+    """
+    x1, y1, x2, y2 = box
+    corners = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+    zone_points = [(float(x), float(y)) for x, y in zone]
+    if any(point_in_zone(corner, zone) for corner in corners):
+        return True
+    if any(x1 <= x <= x2 and y1 <= y <= y2 for x, y in zone_points):
+        return True
+    for index in range(4):
+        start, end = corners[index], corners[(index + 1) % 4]
+        for j, zone_start in enumerate(zone_points):
+            if segments_intersect(start, end, zone_start, zone_points[(j + 1) % len(zone_points)]):
+                return True
+    return False
+
+
+def person_in_zone(box, zone, rule=COUNT_RULE):
+    """Is this person inside the zone under the chosen counting rule ("feet", "centre" or "overlap")?"""
+    if rule == "feet":
+        return point_in_zone(bottom_centre(box), zone)
+    if rule == "centre":
+        return point_in_zone(centre_point(box), zone)
+    if rule == "overlap":
+        return box_overlaps_zone(box, zone)
+    raise ValueError(f"Unknown counting rule {rule!r}; use one of {COUNT_RULES}.")
+
+
+def check_zone(people, zone, rule=COUNT_RULE):
+    """Map each tracked person's ID to True/False: are they inside the zone under the counting rule?"""
     return {
-        track_id: point_in_zone(bottom_centre((x1, y1, x2, y2)), zone)
+        track_id: person_in_zone((x1, y1, x2, y2), zone, rule)
         for track_id, x1, y1, x2, y2, _ in people
     }
 
 
-def update_monitoring(people, zone, zone_states, csv_path, confirm_frames=1):
+def update_monitoring(people, zone, zone_states, csv_path, confirm_frames=1, rule=COUNT_RULE,
+                      count_first_seen_inside=False):
     """Check the zone for this frame, detect entries and log each one to the CSV file.
 
     Returns (inside_by_id, entered_ids).
     """
-    inside_by_id = check_zone(people, zone)
-    entered_ids = find_entries(zone_states, inside_by_id, confirm_frames)
+    inside_by_id = check_zone(people, zone, rule)
+    entered_ids = find_entries(zone_states, inside_by_id, confirm_frames, count_first_seen_inside)
     for track_id in entered_ids:
         log_entry(csv_path, track_id)
     return inside_by_id, entered_ids
@@ -425,11 +495,14 @@ def text_color_for(background):
     return (0, 0, 0) if 0.114 * blue + 0.587 * green + 0.299 * red > 140 else (255, 255, 255)
 
 
-def draw_people(frame, people, inside_by_id, outside_color=BOX_COLOR, inside_color=ZONE_COLOR, compact=False):
-    """Draw each person's box, 'ID <n> Person <confidence>' label and bottom-centre point.
+def draw_people(frame, people, inside_by_id, outside_color=BOX_COLOR, inside_color=ZONE_COLOR, compact=False,
+                rule=COUNT_RULE):
+    """Draw each person's box, 'ID <n> Person <confidence>' label and the point that decides inside/outside.
 
     People inside the zone get their own box colour and an 'INSIDE' tag so the state is not colour-only.
     compact=True drops the word 'Person' to keep labels short in crowded scenes.
+    The dot marks the bottom-centre ("feet" rule) or the middle of the box ("centre" rule); the "overlap" rule
+    has no single point, so no dot is drawn and the whole box is what counts.
     """
     for track_id, x1, y1, x2, y2, confidence in people:
         is_inside = inside_by_id[track_id]
@@ -438,8 +511,9 @@ def draw_people(frame, people, inside_by_id, outside_color=BOX_COLOR, inside_col
         label = f"ID {track_id} {name}{confidence:.2f}" + (" INSIDE" if is_inside else "")
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         draw_label(frame, label, x1, y1, color, text_color_for(color))
-        foot_x, foot_y = bottom_centre((x1, y1, x2, y2))
-        cv2.circle(frame, (int(foot_x), int(foot_y)), 4, color, -1)
+        if rule != "overlap":
+            dot_x, dot_y = centre_point((x1, y1, x2, y2)) if rule == "centre" else bottom_centre((x1, y1, x2, y2))
+            cv2.circle(frame, (int(dot_x), int(dot_y)), 4, color, -1)
 
 
 def status_lines(entry_count, people_count, inside_count):
@@ -491,6 +565,9 @@ def process_video(model, capture, source, zone_fractions=None, speed=0.0):
     zone_states = {}  # track ID -> (confirmed inside/outside state, frames seen in the opposite state)
     entry_count = 0
     frames_read = 0
+    if COUNT_RULE != "feet" or COUNT_FIRST_SEEN_INSIDE:  # say so when the counting differs from the default
+        print(f"Counting rule: {COUNT_RULE}; people first seen inside the zone "
+              f"{'ARE' if COUNT_FIRST_SEEN_INSIDE else 'are not'} counted.")
     while True:
         grabbed, frame = capture.read()
         if not grabbed:
@@ -507,13 +584,13 @@ def process_video(model, capture, source, zone_fractions=None, speed=0.0):
         # 1. detect and track, 2. decide inside/outside and count entries, 3. draw, 4. show.
         people = track_people(model, frame)
         inside_by_id, entered_ids = update_monitoring(
-            people, zone, zone_states, EVENTS_CSV, ZONE_CONFIRM_FRAMES)
+            people, zone, zone_states, EVENTS_CSV, ZONE_CONFIRM_FRAMES, COUNT_RULE, COUNT_FIRST_SEEN_INSIDE)
         for track_id in entered_ids:
             entry_count += 1
             print(f"ENTRY: ID {track_id} (total entries: {entry_count})")
 
         draw_zone(frame, zone)
-        draw_people(frame, people, inside_by_id)
+        draw_people(frame, people, inside_by_id, rule=COUNT_RULE)
         draw_status(frame, status_lines(entry_count, len(people), sum(inside_by_id.values())))
         cv2.imshow(WINDOW_NAME, frame)
         if should_quit():
@@ -532,7 +609,7 @@ def main():
         source, speed = get_source(sys.argv), get_speed(sys.argv)
         validate_speed(speed)
         zone_fractions = load_zone(ZONE_FILE, ZONE_POLYGON)
-        validate_config(zone_fractions, CONFIDENCE_THRESHOLD, ZONE_CONFIRM_FRAMES)
+        validate_config(zone_fractions, CONFIDENCE_THRESHOLD, ZONE_CONFIRM_FRAMES, COUNT_RULE, COUNT_FIRST_SEEN_INSIDE)
         capture = open_source(source)  # checked before the slower model load
         if speed and is_webcam(source):
             print("Note: --speed only applies to video files; the webcam is always live.")
