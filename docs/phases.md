@@ -83,6 +83,33 @@ stamp, was confirmed in a second run with reduced motion switched off)
 and in one short session on the owner's webcam. See the README for
 details.
 
+## Phase 5 --- Zone Insights (owner-approved extension, on a branch)
+
+**Added after Phase 4, at the project owner's request, and built on the
+separate branch `feature/zone-insights` so the working `main` code stays
+as it was.** Not needed for the SRS acceptance criteria, so it is
+optional and kept apart from the core flow: every new setting defaults to
+the original behaviour.
+
+Tasks: - **Counting rule:** choose what counts as inside (feet, middle of
+the body, any overlap of the box) and whether a person first seen inside
+is counted; shared by `main.py` and the portal. - **Manual-count check:**
+type the number of entries counted by eye; show the difference from the
+system's count in the page and the report, with a caution that it is not
+an accuracy score. - **Foot heat-map:** an optional overlay and a report
+picture of where feet have been, to help place the zone; anonymous
+counts only. - Test first, then check the page in a real browser.
+
+Exit criteria: - With default settings, behaviour and the existing tests
+are unchanged. - A zone or rule change never counts people already in
+view. - The report states the rule in use. - No footage and no
+per-person path is kept.
+
+**Status: built and tested on the branch; not merged into `main`.**
+289 automated tests pass (93 new). Checked once in a real browser on the
+worker video; the other counting rules were not replayed against a real
+count (see the README).
+
 ## Priority Rule
 
 If time is running out, deliver Phase 1 and Phase 2 reliably. Skip
@@ -104,3 +131,14 @@ Change record:
     only, no database, no login, no new dependencies. Recorded as
     tracked-change notes in `VisionGuard_SRS.docx` and
     `VisionGuard_PRD.docx`.
+-   **2026-11-01 --- Zone insights (Phase 5).** Requested by the project
+    owner after testing showed two gaps: a zone drawn where nobody
+    actually walks, and people who appear inside the zone or overlap it
+    without their feet inside. Adds a choice of counting rule
+    (including counting a person first seen inside), a manual-count check
+    and a foot heat-map. Goes beyond the SRS and PRD baseline and
+    relaxes Technical Rules 4 and 5 and Scope Rule 6 only as opt-in
+    options; defaults are unchanged. Built on branch
+    `feature/zone-insights`, not yet merged. **Still to do by the owner:**
+    add a tracked-change note to `VisionGuard_SRS.docx` and
+    `VisionGuard_PRD.docx` (these Word files were not edited).

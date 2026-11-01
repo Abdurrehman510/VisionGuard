@@ -39,10 +39,14 @@ makes no guarantee of detecting every entry (see [Limitations](#11-limitations-a
 - Person-only detection (COCO class 0) with `yolov8n.pt`, a small CPU-friendly model.
 - Temporary tracking IDs from the Ultralytics ByteTrack tracker.
 - One restricted zone of **any shape you want**: three or more corners, concave shapes such as an L or a star
-  are fine, and a shape whose edges cross each other is refused with a clear message. The reference point
-  is the bottom-centre of each person's box (roughly where their feet are).
+  are fine, and a shape whose edges cross each other is refused with a clear message. By default the
+  reference point is the bottom-centre of each person's box (roughly where their feet are); you can choose
+  another rule (see *Counting rule* below).
 - Entry counting on observed outside-to-inside transitions only, with a short confirmation window
   (3 frames by default) so a box that flickers across the zone edge for a frame or two is not counted.
+- **Counting rule (optional, off by default):** choose what counts as "inside" (feet, middle of the body, or any
+  overlap of the box with the zone) and whether to also count a person who is first seen already inside. The
+  defaults reproduce the original behaviour exactly.
 - CSV event log: `timestamp`, `tracking_id`, `event_type`.
 - On-screen display: project name and `MONITORING` status, boxes with `ID` / `Person` / confidence,
   the shaded restricted zone, the entry counter, the number of people detected and the zone status
@@ -63,7 +67,12 @@ makes no guarantee of detecting every entry (see [Limitations](#11-limitations-a
   - session report page (printable, can be saved as PDF) and a CSV download;
   - pause, reset counters and restart-the-source buttons, and clear messages if the camera has a problem;
   - for video files: a progress bar with the video's own clock and a **playback speed** control (every frame,
-    0.5×, 1×, 2×, 4×, 8×), also available as `--speed` on the command line (see *Using a video file*).
+    0.5×, 1×, 2×, 4×, 8×), also available as `--speed` on the command line (see *Using a video file*);
+  - **foot heat-map**: shade the picture by where people's feet have been, to see where the zone should go
+    (anonymous counts per area only; no picture or per-person path is kept);
+  - **counting rule** controls (what counts as inside, and the first-seen-inside switch);
+  - **manual-count check**: type how many entries you counted yourself and see the difference from the
+    system's count, in the page and in the report.
 
 ## 5. Technology stack
 
@@ -100,6 +109,7 @@ VisionGuard/
 │   ├── test_application.py        # quit keys, error handling, resource release, status text
 │   ├── test_portal.py             # portal: session numbers, monitor thread, HTTP API, security checks
 │   ├── test_speed.py              # video playback speed: pacing, frame skipping, --speed
+│   ├── test_counting_rules.py     # counting rules (feet / centre / overlap) and the first-seen-inside switch
 │   └── test_end_to_end.py         # real model + real video frames (slow)
 └── docs/
     ├── example_events.csv         # event log produced by a full run on the sample video
@@ -141,6 +151,8 @@ python portal.py                              # your default webcam; the page op
 python portal.py inputs\videos\vtest.mp4      # the same page, fed from a video file
 python portal.py --port 8001                  # another port, if 8000 is busy
 python portal.py --no-browser                 # do not open the browser by itself
+python portal.py --rule overlap               # start with another counting rule (feet | centre | overlap)
+python portal.py --count-first-seen           # start by also counting people first seen already inside
 ```
 
 Open **http://127.0.0.1:8000**. The first start takes anywhere from a few seconds to about a minute (the model
@@ -176,6 +188,26 @@ version.
 peaks. **Open full report** opens a printable page that breaks cleanly across pages (use *Print* and choose
 *Save as PDF* if you want a PDF) and
 **Download CSV** saves this session's entries. The report page repeats the warning that tracking IDs are temporary.
+
+**Zone insights: where to put the zone, what counts as inside, and a check of the count.** Three tools that help
+you fit the zone and the counting to your own camera view. None of them changes the default behaviour.
+
+| Tool | What it does | How to use it |
+|---|---|---|
+| **Foot heat-map** (`H`, or the *Foot heat-map* button) | Shades the live picture from blue to orange by how much time feet have spent in each area during this session, and adds a *Where people walked* picture to the report | Let people walk through the picture, then compare the hot areas with your zone. Move the zone where people really walk. *Reset counters* clears it |
+| **What counts as inside** (card under the video) | **Feet** (default): the bottom-centre of the box. **Middle of the body**: the centre of the box. **Any overlap**: any part of the box touching the zone | Pick one; it applies from the next frame. The dot drawn on each person shows the point that decides (no dot for *Any overlap*, because the whole box counts) |
+| **Also count people who first appear already inside** | A person whose ID is first seen inside the zone is counted once, after the same confirmation window | Off by default. Turn it on when people can appear inside the zone (a doorway, a frame edge). See the limitations for the trade-off |
+| **Check against your count** | You type how many entries you counted by eye; the page and the report show the system's count, yours and the difference | Count while watching the video, then press *Compare*. It follows the live count, so you can enter your number first |
+
+Changing the zone, or the rule, never counts the people who are already in view: the next frame only re-learns where
+everyone is. The portal keeps the choices for the current run only; start the portal with `--rule` or
+`--count-first-seen`, or change `COUNT_RULE` / `COUNT_FIRST_SEEN_INSIDE` in `main.py`, to make them the starting
+values (the OpenCV window, `python main.py`, uses those two constants and has no on-screen switch).
+
+**What the numbers mean:** the manual check compares two totals for one session. It is *not* an accuracy score:
+equal totals can hide a missed entry and a false one that cancel out, and the report says so. The heat-map counts
+foot positions (frames), not people, so someone standing still looks hot; it uses the foot position whichever
+counting rule is selected.
 
 **Privacy and safety:** the portal listens on `127.0.0.1` only, so other computers cannot reach it, and it refuses
 requests whose address or origin does not match its own page, which is designed to stop other websites you may
@@ -293,6 +325,8 @@ Edit the constants at the top of `main.py`:
 | `ZONE_POLYGON` | trapezoid | The built-in zone: corners as `(x, y)` **fractions of the frame width/height** (0–1), at least 3 points, edges must not cross |
 | `ZONE_FILE` | `zone.json` | A zone saved from the portal. If this file exists and is valid it is used instead of `ZONE_POLYGON`; delete it, or use **Reset to default**, to go back |
 | `ZONE_CONFIRM_FRAMES` | `3` | A change inside/outside must last this many frames to count (`1` = count at once) |
+| `COUNT_RULE` | `"feet"` | What counts as inside: `"feet"` (bottom-centre of the box), `"centre"` (middle of the box) or `"overlap"` (any part of the box touching the zone) |
+| `COUNT_FIRST_SEEN_INSIDE` | `False` | `True` also counts a person whose ID is first seen already inside the zone (once, after the confirmation window) |
 | `MODEL_PATH` | `models/yolov8n.pt` | Model weights |
 | `TRACKER` | `bytetrack.yaml` | Ultralytics tracker configuration |
 | `EVENTS_CSV` | `outputs/events.csv` | Event log file |
@@ -306,14 +340,16 @@ invalid shape is ignored with a message, and the default zone is used.
 ### How an entry is counted
 
 1. YOLO detects people and the tracker gives each a temporary ID.
-2. The bottom-centre of each person's box is tested against the zone polygon (a point exactly on the
-   boundary counts as inside).
+2. With the default rule, the bottom-centre of each person's box is tested against the zone polygon (a point
+   exactly on the boundary counts as inside). `COUNT_RULE = "centre"` tests the middle of the box instead, and
+   `"overlap"` asks whether any part of the box touches the zone (a box that only brushes the boundary counts).
 3. The confirmed inside/outside state is remembered per ID. A change is confirmed once it has lasted
    `ZONE_CONFIRM_FRAMES` frames in a row.
 4. An **entry** is counted when a confirmed state changes from outside to inside. Staying inside adds
    nothing; leaving and later coming back with the same ID adds another entry.
 5. A person whose ID is first seen already inside the zone is not counted, because no outside-to-inside
-   move was observed.
+   move was observed. (With `COUNT_FIRST_SEEN_INSIDE = True` they are counted once instead, after the same
+   `ZONE_CONFIRM_FRAMES` window.)
 
 ## 9. Sample output
 
@@ -374,15 +410,18 @@ of who really entered the zone was made.
 Run the tests yourself:
 
 ```powershell
-python -m unittest tests.test_zone_monitoring tests.test_application tests.test_portal tests.test_speed   # logic, errors, portal, speed
+python -m unittest tests.test_zone_monitoring tests.test_application tests.test_portal tests.test_speed tests.test_counting_rules   # logic, errors, portal, speed, counting rules
 python -m unittest discover -s tests                                                                     # everything, incl. the end-to-end test
 ```
 
-**Result of the final run: 196 tests, all passing** (72 in `test_zone_monitoring`, 23 in `test_application`,
-70 in `test_portal`, 25 in `test_speed`, 6 in `test_end_to_end`). That run took about 40 seconds because the
-laptop had free memory; an earlier full run took about 3½ minutes when it did not. The end-to-end test runs the real model over 300 video frames, so on a slow or
+**Result of the latest run (branch `feature/zone-insights`): 289 tests, all passing** (72 in `test_zone_monitoring`,
+23 in `test_application`, 125 in `test_portal`, 25 in `test_speed`, 38 in `test_counting_rules`, 6 in
+`test_end_to_end`). That run took about 55 seconds; an earlier full run on the previous 196 tests took about 3½
+minutes when the laptop was short of free memory. The end-to-end test runs the real model over 300 video frames, so on a slow or
 busy machine it can take a few minutes. The unit tests were written before the code they cover; the end-to-end
-test was added afterwards to check the pieces work together.
+test was added afterwards to check the pieces work together. The 93 tests added for the zone insights were
+written first and seen failing before the code was written; the end-to-end test still passes with the default settings,
+which shows the defaults behave as before.
 
 The by-hand checks in the table below (full run on the sample video, real key presses, error messages from the
 command line) were done on the code as it stood at the end of Phase 3. `main.py` has since gained the saved-zone
@@ -474,6 +513,19 @@ above, which were all re-run, but the long by-hand checks were not repeated.
   and its column titles repeat on each page. After the fix, the same A4 print has the heading and text together,
   and a 45-entry report runs cleanly over three pages. This was checked on the printed pages (A4) and by two new
   tests; it was not checked on other paper sizes or other browsers.
+- **Zone insights (counting rule, manual check, heat-map).** Automated: 38 tests for the rules in `main.py` (the
+  box-overlap geometry including concave zones, each rule on the same people, the first-seen switch with the
+  confirmation window and flicker, validation, and that the defaults are unchanged) and 55 more in
+  `tests/test_portal.py` (rule changes not counting anyone already in view, the manual comparison and its wording,
+  heat-map cells and edge clamping, the new HTTP endpoints, the report). By hand, in a real browser (Chrome) on
+  `worker-zone-detection-small.mp4` with the saved zone: the heat-map toggle drew a trail along the path the
+  worker walked, the legend showed, choosing *Any overlap* changed the server's rule, the controls and showed a
+  message, typing 3 in the manual check showed `0 vs 3, difference -3`, the report page showed the rule sentence,
+  the manual check and the *Where people walked* picture, and the page logged no JavaScript errors. This was one
+  short session, not the full checklist. **Not measured:** how many more real entries the other rules find. I did
+  not count the people in any video, and I did not replay a video under the other rules. In that run the saved zone
+  lay away from where the worker walked (which is what the heat-map showed) and the default rule counted 0 entries;
+  *Any overlap* was only switched on after the video had ended, so it was not tried on the footage.
 - **Video playback speed.** Tested with fake time (so a long video "plays" instantly): at normal speed a slow
   detector skips the right number of frames and a fast one waits, double speed skips more, speed 0 uses every
   frame, pausing does not make the video race ahead afterwards, and a webcam refuses a speed. In a real browser on
@@ -503,8 +555,20 @@ above, which were all re-run, but the long by-hand checks were not repeated.
 - **The confirmation window is a trade-off.** `ZONE_CONFIRM_FRAMES = 3` removes one- and two-frame flicker at the
   zone edge, but it also ignores a genuine crossing shorter than 3 frames, and counts an entry 2 frames late. On a
   slow machine 3 frames last longer in real time. Set it to `1` for immediate counting.
-- **First seen inside is not counted.** Keep the zone away from places where people first appear (for example
-  frame edges). The tracker may need a frame or more before it gives a new person an ID.
+- **First seen inside is not counted (by default).** Keep the zone away from places where people first appear (for
+  example frame edges). The tracker may need a frame or more before it gives a new person an ID. The
+  *first-seen-inside* switch counts them, but it cannot tell a new person from a known person who got a new ID
+  while standing inside, so it can count one person twice; it also counts everyone who is inside when monitoring
+  starts.
+- **The other counting rules trade accuracy for sensitivity.** *Any overlap* counts people who only brush past the
+  zone edge or whose box reaches into the zone (an arm or a bag), and a large box near the camera touches more.
+  *Middle of the body* assumes the box centre is meaningful, which fails for a sitting or partly hidden person.
+  None of the rules was measured against a real count.
+- **The heat-map is a rough picture.** It uses a 64 × 48 grid, so it is coarse; it counts foot positions per frame
+  (a person standing still stands out); it shows nothing until people have been seen; and frames skipped by the
+  playback speed are not in it. It is not a measure of how safe or busy an area is.
+- **The manual check is only as good as the person counting.** It compares two totals; it does not match
+  individual entries.
 - **The default zone fits the sample video only.** Draw your own zone in the portal (or edit `ZONE_POLYGON`) for
   any other camera view. Shapes whose edges cross or touch are refused; a very thin zone is allowed but people
   will rarely register inside it.

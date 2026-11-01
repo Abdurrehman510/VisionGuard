@@ -60,7 +60,12 @@ entry detection and CSV logging, all defined in `main.py`.
 -   The shape can be any polygon with three or more corners, including
     concave shapes. A shape whose edges cross or touch, has no area, or
     has points outside 0 to 1 is rejected with a clear message.
--   Calculates the bottom-centre point of each person's bounding box.
+-   Decides "inside" with the configured **counting rule** (`COUNT_RULE`):
+    `"feet"` (default) tests the bottom-centre point of each person's
+    bounding box; `"centre"` tests the middle of the box; `"overlap"` is
+    true when any part of the box touches the polygon (box corner inside
+    the zone, zone corner inside the box, or any two edges crossing, so
+    concave zones work).
 -   Checks whether the point is inside or outside the polygon (a point on
     the boundary counts as inside).
 -   Maintains the confirmed inside/outside state for each tracking ID.
@@ -76,7 +81,12 @@ entry detection and CSV logging, all defined in `main.py`.
 -   Do not increment the count on every frame while the person remains
     inside.
 -   A person first seen already inside has no known previous state and
-    is not counted.
+    is not counted. With `COUNT_FIRST_SEEN_INSIDE = True` the person is
+    instead treated as having been outside just before, so they are
+    counted once, after the same confirmation window (the trade-off:
+    someone who gets a new ID while standing inside is counted again).
+    In the portal, the first frame after a zone or rule change only
+    re-learns who is where, so a change never counts anyone.
 -   A later exit followed by re-entry may generate another event if the
     tracker preserves the same ID and the transition is observed.
 -   Tracking loss or ID reassignment can affect counts; this is an
@@ -128,10 +138,28 @@ entry detection and CSV logging, all defined in `main.py`.
     | `POST /api/zone/reset` | restore the default zone |
     | `POST /api/pause`, `/api/reset`, `/api/restart` | pause or resume, reset counters, restart the source |
     | `POST /api/speed` | change the playback speed of a video file (refused for a webcam) |
+    | `POST /api/rules` | change the counting rule and/or the first-seen-inside switch (`{"rule": ..., "countFirstSeenInside": ...}`, either may be left out) |
+    | `POST /api/manual` | set (`{"count": 5}`) or clear (`{"count": null}`) the manual count to compare with |
+    | `GET /api/heatmap` | the foot heat-map: grid size, one count per cell, the maximum and the total |
 
 -   `GET /api/state` includes a `video` object for video files
     (`position`, `duration`, `speed`, `fps`, in seconds and times
     normal speed); it is `null` for a webcam.
+-   `GET /api/state` also carries `rules` (the counting rule in use) and
+    `manualCheck` (`null`, or your count, the system's count, the
+    difference and a one-sentence summary). The heat-map is deliberately
+    not in the polled state; the page fetches `/api/heatmap` only while
+    the heat-map is switched on.
+-   **Foot heat-map.** `Session` adds one count to a 64 × 48 grid cell for
+    each person's feet (bottom-centre) on every analysed frame, whichever
+    counting rule is active. Only the anonymous cell counts are kept:
+    no frame, no track ID and no path. It is cleared with the session.
+    The page draws it on the overlay canvas under the zone; the report
+    draws it as inline SVG with the zone outline.
+-   **Manual-count check.** `describe_manual_check()` turns the system's
+    count and a hand count into a difference, a percentage of the hand
+    count (none when it is 0) and a sentence. It is a difference between
+    two totals, not an accuracy figure, and the report says so.
 -   `POST` requests must be `application/json` and at most 64 KB.
 -   Changing the zone clears the remembered inside/outside states, so a
     person already inside when the zone changes is not counted as
@@ -147,13 +175,17 @@ entry detection and CSV logging, all defined in `main.py`.
 -   `portal_ui/index.html` --- the portal page (layout, zone editor,
     charts, controls).
 -   `tests/` --- `test_zone_monitoring.py`, `test_application.py`,
-    `test_portal.py`, `test_end_to_end.py`.
+    `test_portal.py`, `test_speed.py`, `test_counting_rules.py`,
+    `test_end_to_end.py`.
 
 The earlier suggestion to split `main.py` into `video_source.py`,
 `zone.py`, `event_logger.py` and `config.py` was not needed; the
 functions stay small and named by purpose inside `main.py`.
 
 ## Data
+
+The heat-map and the manual count live in memory for one portal session
+and are not written to disk.
 
 The application processes frames in memory. Persistent files are
 `outputs/events.csv` (the event log) and `zone.json` (only if a zone was

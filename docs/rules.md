@@ -13,8 +13,13 @@
 6.  One owner-approved extension exists: the optional web portal
     (`portal.py`, see Phase 4 in `phases.md`). It must stay local-only
     (`127.0.0.1`), use no new dependencies, remain separate from the
-    core application, and never change the counting rules. It does not
-    relax any other rule in this file.
+    core application, and never change the counting rules on its own.
+    It does not relax any other rule in this file.
+7.  One further owner-approved extension exists: the zone insights
+    (Phase 5 in `phases.md`): a choice of counting rule, a manual-count
+    check and a foot heat-map. They must default to the original
+    behaviour, stay local, use no new dependencies and keep no footage
+    and no per-person path.
 
 ## Technical Rules
 
@@ -23,8 +28,11 @@
 3.  Use tracking IDs for entry-transition counting; raw per-frame
     detections are not sufficient for unique transition events.
 4.  Use the bottom-centre of the bounding box as the zone reference
-    point.
-5.  Count only an observed outside-to-inside transition.
+    point. (Default. The owner-approved options `"centre"` and
+    `"overlap"` in `COUNT_RULE` are opt-in; see Phase 5.)
+5.  Count only an observed outside-to-inside transition. (Default. The
+    owner-approved switch `COUNT_FIRST_SEEN_INSIDE`, off by default, also
+    counts a person first seen inside, once; see Phase 5.)
 6.  Write only the required event fields to CSV: timestamp, tracking_id,
     event_type.
 7.  Release the video capture and close OpenCV windows on normal stop
@@ -41,6 +49,10 @@
 12. Analyse every frame by default. Skipping frames to keep a video on
     time (`--speed`, the portal's Playback speed) must be an explicit
     choice, apply to video files only, and be documented as a trade-off.
+13. Anything that changes how entries are counted must default to the
+    original behaviour, be validated like the other settings, and be
+    stated on the session report. A change of zone or rule must never
+    count the people who are already in view.
 
 ## Code Quality Rules
 
